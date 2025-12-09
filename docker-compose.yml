@@ -1,15 +1,21 @@
-version: '3.8'
+version: "3.9"
 
 services:
-  mongodb:
-    image: mongo:latest
+  mongo:
+    image: mongo:7.0
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      # Optional: create an initial database name (no data until you write to it)
+      MONGO_INITDB_DATABASE: appdb
     ports:
       - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=root
-      - MONGO_INITDB_ROOT_PASSWORD=example
     volumes:
-      - mongodb_data:/data/db
+      - mongo_data:/data/db
+      # Optional: put .js or .sh init scripts in ./mongo-init
+      # - ./mongo-init:/docker-entrypoint-initdb.d:ro
 
 volumes:
-  mongodb_data:
+  mongo_data:

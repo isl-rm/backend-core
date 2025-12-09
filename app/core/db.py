@@ -1,18 +1,36 @@
-from typing import Any
-
 from beanie import init_beanie
-from pymongo import AsyncMongoClient
-from pymongo.asynchronous.database import AsyncDatabase
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import settings
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital
 
+MONGO_CLIENT: AsyncIOMotorClient | None = None
 
-async def init_db() -> None:
-    client: AsyncMongoClient[Any] = AsyncMongoClient(settings.MONGODB_URL)
-    db: AsyncDatabase[Any] = client[settings.MONGODB_DB_NAME]
+
+async def init_db() -> AsyncIOMotorClient:
+    """
+    Create a single Motor client, initialize Beanie, and return the client.
+
+    This should be called exactly once at app startup.
+    """
+    global MONGO_CLIENT
+
+    client = AsyncIOMotorClient(
+        settings.MONGODB_URL,
+        uuidRepresentation="standard",
+        serverSelectionTimeoutMS=5000,
+    )
+
+    db: AsyncIOMotorDatabase = client[settings.MONGODB_DB_NAME]
+
     await init_beanie(
         database=db,
-        document_models=[User, Vital],
+        document_models=[
+            User,
+            Vital,
+        ],
     )
+
+    MONGO_CLIENT = client
+    return client

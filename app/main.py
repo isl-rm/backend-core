@@ -18,8 +18,14 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    await init_db()
+    # Startup
+    mongo_client = await init_db()
+    app.state.mongo_client = mongo_client
+
     yield
+
+    # Shutdown
+    mongo_client.close()
 
 
 app = FastAPI(
