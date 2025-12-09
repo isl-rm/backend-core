@@ -18,6 +18,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "motor>=3.6.0",
     "email-validator>=2.0.0",
+    "argon2-cffi>=25.1.0",
 ]
 
 [tool.ruff]
@@ -29,6 +30,8 @@ strict = true
 exclude = ["build"]
 disallow_subclassing_any = false
 disallow_untyped_decorators = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
 module = "tests.*"

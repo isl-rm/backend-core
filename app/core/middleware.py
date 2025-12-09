@@ -32,7 +32,7 @@ class StructlogMiddleware(BaseHTTPMiddleware):
         logger = structlog.get_logger()
         # Only log start in local/dev to reduce noise in prod, or keep it debug
         if settings.ENVIRONMENT in ["local", "dev"]:
-            await logger.info("request_started")
+            logger.info("request_started")
 
         start_time = time.perf_counter()
 
@@ -42,7 +42,7 @@ class StructlogMiddleware(BaseHTTPMiddleware):
 
             # 5. Log Request Success
             process_time = time.perf_counter() - start_time
-            await logger.info(
+            logger.info(
                 "request_finished",
                 status_code=response.status_code,
                 duration=process_time,
@@ -56,7 +56,7 @@ class StructlogMiddleware(BaseHTTPMiddleware):
             # 5b. Log Request Failure (Exception)
             # Exception will be caught here, logged, and re-raised for the exception handler
             process_time = time.perf_counter() - start_time
-            await logger.exception(
+            logger.exception(
                 "request_failed",
                 duration=process_time,
             )

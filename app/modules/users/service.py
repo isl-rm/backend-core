@@ -13,11 +13,13 @@ class UserService:
         return user
 
     async def create(self, user_in: UserCreate) -> User:
+
         user = User(
             email=user_in.email,
             hashed_password=security.get_password_hash(user_in.password),
-            full_name=user_in.full_name,
-            is_active=user_in.is_active,
+            roles=user_in.roles,
+            status=user_in.status,
+            profile=user_in.profile.model_dump(),
         )
         await user.insert()
         return user
