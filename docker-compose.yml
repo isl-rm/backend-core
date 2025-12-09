@@ -17,5 +17,17 @@ services:
       # Optional: put .js or .sh init scripts in ./mongo-init
       # - ./mongo-init:/docker-entrypoint-initdb.d:ro
 
+  app:
+    build: .
+    container_name: backend-core
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://root:example@mongo:27017
+    depends_on:
+      - mongo
+    volumes:
+      - ./.env:/app/.env
+
 volumes:
   mongo_data:
