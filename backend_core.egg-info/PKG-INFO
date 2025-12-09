@@ -1,0 +1,34 @@
+Metadata-Version: 2.1
+Name: backend-core
+Version: 0.1.0
+Summary: Backend Core Project
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.100.0
+Requires-Dist: uvicorn[standard]>=0.20.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: pydantic-settings>=2.0.0
+Requires-Dist: structlog>=23.1.0
+Requires-Dist: sentry-sdk>=1.29.0
+Requires-Dist: beanie>=1.25.0
+Requires-Dist: python-dotenv>=1.0.0
+
+# Backend Core
+
+This is the backend core project built with FastAPI.
+
+## Setup
+
+1. Install dependencies:
+   ```bash
+   uv sync
+   # or
+   pip install -r requirements.txt
+   ```
+
+2. Run the server:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+See `.agent/rules/instructions.md` for development guidelines.

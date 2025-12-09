@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # Project Instructions & Architecture Rules
 
 You are an expert Backend Developer working on a FastAPI + MongoDB application.

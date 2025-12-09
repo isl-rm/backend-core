@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+app/db.py
+app/main.py
+app/api/chat.py
+app/core/config.py
+app/models/__init__.py
+app/websockets/manager.py
+backend_core.egg-info/PKG-INFO
+backend_core.egg-info/SOURCES.txt
+backend_core.egg-info/dependency_links.txt
+backend_core.egg-info/requires.txt
+backend_core.egg-info/top_level.txt
