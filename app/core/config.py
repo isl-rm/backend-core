@@ -18,6 +18,11 @@ class Settings(BaseSettings):
         "http://localhost:5173",
     ]
 
+    # Logging & Sentry
+    ENVIRONMENT: str = "local"  # local, dev, prod
+    LOG_LEVEL: str = "INFO"
+    SENTRY_DSN: str | None = None
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 

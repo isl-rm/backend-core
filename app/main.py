@@ -6,10 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.logging import setup_logging
+from app.core.middleware import StructlogMiddleware
 from app.modules.auth import router as auth_router
 from app.modules.chat import router as chat_router
 from app.modules.users import router as users_router
 from app.modules.vitals import router as vitals_router
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -48,6 +52,8 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+app.add_middleware(StructlogMiddleware)
 
 app.include_router(chat_router.router, prefix=settings.API_V1_STR)
 app.include_router(auth_router.router, prefix=settings.API_V1_STR, tags=["auth"])
