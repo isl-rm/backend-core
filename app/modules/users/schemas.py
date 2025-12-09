@@ -26,7 +26,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., max_length=128, min_length=8)
 
     @field_validator("roles")
     @classmethod

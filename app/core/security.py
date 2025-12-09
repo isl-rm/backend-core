@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 # We should add SECRET_KEY to settings, but for now we'll use a default if not present

@@ -1,6 +1,10 @@
+import structlog
+
 from app.core import security
 from app.modules.users.models import User
 from app.modules.users.schemas import UserCreate
+
+log = structlog.get_logger()
 
 
 class UserService:
@@ -13,6 +17,9 @@ class UserService:
         return user
 
     async def create(self, user_in: UserCreate) -> User:
+        log.info(
+            "creating_user", email=user_in.email, password_len=len(user_in.password)
+        )
 
         user = User(
             email=user_in.email,
