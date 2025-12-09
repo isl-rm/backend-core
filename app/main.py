@@ -1,26 +1,33 @@
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db import init_db
-from app.api import chat
+from app.core.db import init_db
+from app.modules.auth import router as auth_router
+from app.modules.chat import router as chat_router
+from app.modules.users import router as users_router
+from app.modules.vitals import router as vitals_router
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="""
     ## Backend Core API
-    
+
     This API provides:
     * **Authentication**: User registration, login, and profile management
     * **Vitals Monitoring**: Record and retrieve vital signs (ECG, BPM, Gyroscope, Heart Rate)
     * **Real-time Chat**: WebSocket-based chat functionality
-    
+
     ### Authentication
     Most endpoints require authentication using Bearer tokens.
     1. Register a new user via `/api/v1/signup`
@@ -42,15 +49,16 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-app.include_router(chat.router, prefix=settings.API_V1_STR)
+app.include_router(chat_router.router, prefix=settings.API_V1_STR)
+app.include_router(auth_router.router, prefix=settings.API_V1_STR, tags=["auth"])
+app.include_router(
+    users_router.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"]
+)
+app.include_router(
+    vitals_router.router, prefix=f"{settings.API_V1_STR}/vitals", tags=["vitals"]
+)
 
-from app.api import auth
-app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["auth"])
-
-from app.api import vitals
-app.include_router(vitals.router, prefix=f"{settings.API_V1_STR}/vitals", tags=["vitals"])
 
 @app.get("/health")
-def health_check():
+def health_check() -> dict[str, str]:
     return {"status": "ok"}
-    
