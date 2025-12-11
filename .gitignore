@@ -141,3 +141,6 @@ reproduce_issue.py
 
 #egg-info
 backend_core.egg-info/
+
+# Coverage
+.coverage

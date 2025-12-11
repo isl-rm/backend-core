@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     MAX_LOGIN_ATTEMPTS: int = 5
+    # Default cookie SameSite for refresh tokens. Set to "none" (with HTTPS) if the
+    # frontend is on a different domain; keep "lax" for same-site CSRF protection.
+    REFRESH_TOKEN_SAMESITE: str = "lax"  # lax, strict, none
 
     model_config = SettingsConfigDict(
         env_file=".env", case_sensitive=True, extra="ignore"

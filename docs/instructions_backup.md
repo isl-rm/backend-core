@@ -102,7 +102,7 @@ backend-core/
 
 ## 6. 🔐 Authentication & Security
 
-**Stack:** JWT + bcrypt/passlib
+**Stack:** JWT + argon2id
 
 **Configuration:**
 - JWT functions: `app/core/security.py`
@@ -110,7 +110,7 @@ backend-core/
 
 **Implementation:**
 - Use `OAuth2PasswordBearer` for token extraction
-- Hash passwords with `passlib.CryptContext`
+- Hash passwords with argon2id via `argon2-cffi`
 - JWT tokens via `python-jose`
 - Create dependency chains: `get_current_user` → `get_current_active_user` → `get_current_superuser`
 
