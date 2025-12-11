@@ -118,3 +118,17 @@ async def test_get_refresh_token_payload():
 
     bad_sub = await auth_service.get_refresh_token_payload("invalid_token_string")
     assert bad_sub is None
+
+
+@pytest.mark.asyncio
+async def test_authenticate_respects_naive_lock(create_user_func):
+    auth_service = AuthService()
+    future_naive = (datetime.now(timezone.utc) + timedelta(minutes=5)).replace(
+        tzinfo=None
+    )
+    user = await create_user_func(
+        password="correct", locked_until=future_naive, login_failed_attempts=1
+    )
+
+    res = await auth_service.authenticate(user.email, "correct")
+    assert res is None

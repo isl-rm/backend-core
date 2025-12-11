@@ -1,7 +1,15 @@
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
+from fastapi import Response
 from httpx import AsyncClient
 
+from app.main import app
+from app.modules.auth.router import _clear_refresh_cookie, _set_refresh_cookie
 from app.modules.auth.service import AuthService
+from app.modules.users.service import UserService
+from app.shared.constants import Role, UserStatus
 
 
 @pytest.mark.asyncio
@@ -167,3 +175,167 @@ async def test_logout_clears_refresh_cookie(client: AsyncClient, create_user_fun
     refresh_response = await client.post("/api/v1/refresh-token")
     assert refresh_response.status_code == 403
     assert refresh_response.json()["detail"] == "Refresh token missing"
+
+
+def test_login_cookie_helpers_set_and_clear_headers():
+    response = Response()
+
+    _set_refresh_cookie(response, "token123")
+    set_cookie_headers = [
+        value.decode().lower()
+        for header, value in response.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("refresh_token=token123" in h for h in set_cookie_headers)
+    assert any("httponly" in h for h in set_cookie_headers)
+    assert any("max-age=" in h for h in set_cookie_headers)
+
+    _clear_refresh_cookie(response)
+    clear_headers = [
+        value.decode().lower()
+        for header, value in response.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("max-age=0" in h for h in clear_headers)
+
+
+@pytest.mark.asyncio
+async def test_login_refresh_flow_runs_with_cookie(client: AsyncClient, create_user_func):
+    password = "password123"
+    user = await create_user_func(password=password)
+
+    login_response = await client.post(
+        "/api/v1/login/access-token",
+        data={"email": user.email, "password": password},
+    )
+    assert login_response.status_code == 200
+    assert login_response.cookies.get("refresh_token")
+
+    refresh_response = await client.post("/api/v1/refresh-token")
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["token_type"] == "bearer"
+    assert refresh_response.cookies.get("refresh_token")
+
+
+@pytest.mark.asyncio
+async def test_login_logout_flow_clears_cookie(client: AsyncClient, create_user_func):
+    password = "password123"
+    user = await create_user_func(password=password)
+
+    login_response = await client.post(
+        "/api/v1/login/access-token",
+        data={"email": user.email, "password": password},
+    )
+    assert login_response.cookies.get("refresh_token")
+
+    logout_response = await client.post("/api/v1/logout")
+    assert logout_response.status_code == 204
+    clear_header = (logout_response.headers.get("set-cookie") or "").lower()
+    assert "max-age=0" in clear_header
+
+
+@pytest.mark.asyncio
+async def test_login_access_token_with_override_sets_tokens(client: AsyncClient):
+    class FakeAuthService:
+        def __init__(self) -> None:
+            self.created_tokens: list[tuple[str, str]] = []
+
+        async def authenticate(self, email: str, password: str) -> SimpleNamespace:
+            return SimpleNamespace(id="user123")
+
+        def create_access_token(self, sub: str) -> str:
+            self.created_tokens.append(("access", sub))
+            return f"access-{sub}"
+
+        def create_refresh_token(self, sub: str) -> str:
+            self.created_tokens.append(("refresh", sub))
+            return f"refresh-{sub}"
+
+    fake_auth = FakeAuthService()
+    app.dependency_overrides[AuthService] = lambda: fake_auth
+    try:
+        response = await client.post(
+            "/api/v1/login/access-token",
+            data={"email": "u@example.com", "password": "pw"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "access-user123"
+    assert response.cookies.get("refresh_token") == "refresh-user123"
+    assert ("access", "user123") in fake_auth.created_tokens
+    assert ("refresh", "user123") in fake_auth.created_tokens
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_prefers_body_over_cookie(client: AsyncClient):
+    class FakeAuthService:
+        def __init__(self) -> None:
+            self.last_token = None
+
+        async def get_refresh_token_payload(self, token: str) -> str:
+            self.last_token = token
+            return "user456"
+
+        def create_access_token(self, sub: str) -> str:
+            return f"new-access-{sub}"
+
+    fake_auth = FakeAuthService()
+    app.dependency_overrides[AuthService] = lambda: fake_auth
+    try:
+        client.cookies.set("refresh_token", "cookietoken", domain="test", path="/")
+        response = await client.post(
+            "/api/v1/refresh-token",
+            json={"refresh_token": "bodytoken"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+        client.cookies.clear()
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "new-access-user456"
+    assert response.cookies.get("refresh_token") == "bodytoken"
+    assert fake_auth.last_token == "bodytoken"
+
+
+@pytest.mark.asyncio
+async def test_signup_success_with_override(client: AsyncClient):
+    class FakeUserService:
+        def __init__(self) -> None:
+            self.created_input = None
+            self.queried_email = None
+
+        async def get_by_email(self, email: str) -> None:
+            self.queried_email = email
+            return None
+
+        async def create(self, user_in):
+            self.created_input = user_in
+            return SimpleNamespace(
+                id="stub-user",
+                email=user_in.email,
+                roles=user_in.roles,
+                status=UserStatus.ACTIVE,
+                email_verified=False,
+                created_at=datetime.now(timezone.utc),
+                last_login_at=None,
+                profile=user_in.profile,
+            )
+
+    fake_user_service = FakeUserService()
+    app.dependency_overrides[UserService] = lambda: fake_user_service
+    try:
+        response = await client.post(
+            "/api/v1/signup",
+            json={"email": "override@example.com", "password": "strongpassword"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["email"] == "override@example.com"
+    assert data["roles"] == [Role.USER]
+    assert fake_user_service.queried_email == "override@example.com"
+    assert fake_user_service.created_input.email == "override@example.com"
