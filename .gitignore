@@ -137,3 +137,7 @@ test_output*.txt
 test_debug*.txt
 coverage.txt
 reproduce_issue.py
+
+
+#egg-info
+backend_core.egg-info/
