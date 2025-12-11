@@ -12,6 +12,12 @@ class VitalType(str, Enum):
     BPM = "bpm"
     GYROSCOPE = "gyroscope"
     HEART_RATE = "heart_rate"
+    BLOOD_PRESSURE = "blood_pressure"
+    SPO2 = "spo2"
+    TEMPERATURE = "temperature_c"
+    RESP_RATE = "resp_rate"
+    BLOOD_SUGAR = "blood_sugar"
+    WEIGHT_KG = "weight_kg"
 
 
 class Vital(Document):
