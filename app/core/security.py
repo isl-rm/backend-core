@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Union
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
+# Use argon2id directly to avoid stdlib crypt() deprecation warnings.
+password_hasher = PasswordHasher()
 
 ALGORITHM = "HS256"
 # We should add SECRET_KEY to settings, but for now we'll use a default if not present
@@ -22,9 +24,9 @@ def create_access_token(
     subject: Union[str, Any], expires_delta: Union[timedelta, None] = None
 ) -> str:
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     to_encode = {"exp": expire, "sub": str(subject)}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -32,8 +34,16 @@ def create_access_token(
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """
+    Verify passwords hashed with argon2id.
+    """
+    try:
+        return password_hasher.verify(hashed_password, plain_password)
+    except VerifyMismatchError:
+        return False
+    except Exception:
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return password_hasher.hash(password)

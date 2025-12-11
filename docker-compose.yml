@@ -28,6 +28,7 @@ services:
       - mongo
     volumes:
       - ./.env:/app/.env
+      - ./app:/app/app
 
 volumes:
   mongo_data:

@@ -1,9 +1,24 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import (
+    APIRouter,
+    Body,
+    Cookie,
+    Depends,
+    Form,
+    HTTPException,
+    Response,
+    status,
+)
+from app.core.config import settings
 
-from app.modules.auth.schemas import Token
+from app.modules.auth.constants import (
+    REFRESH_TOKEN_COOKIE_NAME,
+    REFRESH_TOKEN_MAX_AGE,
+    REFRESH_TOKEN_SECURE,
+    REFRESH_TOKEN_SAMESITE,
+)
+from app.modules.auth.schemas import AccessTokenResponse, EmailPasswordForm
 from app.modules.auth.service import AuthService
 from app.modules.users.schemas import UserCreate, UserResponse
 from app.modules.users.service import UserService
@@ -11,43 +26,79 @@ from app.modules.users.service import UserService
 router = APIRouter()
 
 
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_TOKEN_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=REFRESH_TOKEN_SECURE,
+        samesite=REFRESH_TOKEN_SAMESITE,
+        max_age=REFRESH_TOKEN_MAX_AGE,
+        path="/",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_TOKEN_COOKIE_NAME,
+        httponly=True,
+        secure=REFRESH_TOKEN_SECURE,
+        samesite=REFRESH_TOKEN_SAMESITE,
+        path="/",
+    )
+
+
 @router.post(
-    "/login/access-token", response_model=Token, summary="Login to get access token"
+    "/login/access-token",
+    response_model=AccessTokenResponse,
+    summary="Login to get access token",
 )
 async def login_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    response: Response,
+    form_data: EmailPasswordForm = Depends(),
     auth_service: AuthService = Depends(AuthService),
 ) -> Any:
     """
     OAuth2 compatible token login, get an access token for future requests.
     """
-    user = await auth_service.authenticate(form_data.username, form_data.password)
+    user = await auth_service.authenticate(form_data.email, form_data.password)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect email or password")
-
-    # Check if locked (handled in authenticate, but double check return)
-    # The service returns None if locked/inactive/bad-pass.
 
     # Generate tokens
     access_token = auth_service.create_access_token(user.id)
     refresh_token = auth_service.create_refresh_token(user.id)
+    _set_refresh_cookie(response, refresh_token)
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/refresh-token", response_model=Token, summary="Refresh access token")
+@router.post(
+    "/refresh-token",
+    response_model=AccessTokenResponse,
+    summary="Refresh access token",
+)
 async def refresh_token(
-    refresh_token: str = Body(..., embed=True),
+    response: Response,
+    refresh_token_body: str | None = Body(
+        None, embed=True, alias="refresh_token"
+    ),
+    refresh_token_cookie: str | None = Cookie(
+        None, alias=REFRESH_TOKEN_COOKIE_NAME
+    ),
     auth_service: AuthService = Depends(AuthService),
 ) -> Any:
     """
     Get a new access token using a refresh token.
     """
-    sub = await auth_service.get_refresh_token_payload(refresh_token)
+    refresh_token_value = refresh_token_body or refresh_token_cookie
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Refresh token missing",
+        )
+
+    sub = await auth_service.get_refresh_token_payload(refresh_token_value)
     if not sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -60,11 +111,21 @@ async def refresh_token(
 
     new_access_token = auth_service.create_access_token(sub)
     # We return the same refresh token (rotation not implemented yet)
-    return {
-        "access_token": new_access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    _set_refresh_cookie(response, refresh_token_value)
+    return {"access_token": new_access_token, "token_type": "bearer"}
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Logout and clear refresh token",
+)
+async def logout(response: Response) -> None:
+    """
+    Clear the refresh token cookie. If refresh tokens are stored server-side,
+    revoke them here as well.
+    """
+    _clear_refresh_cookie(response)
 
 
 @router.post(
@@ -84,7 +145,7 @@ async def create_user(
     if user:
         raise HTTPException(
             status_code=400,
-            detail="The user with this username already exists in the system",
+            detail="The user with this email already exists in the system",
         )
 
     user = await user_service.create(user_in)
