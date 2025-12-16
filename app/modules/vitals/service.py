@@ -18,7 +18,7 @@ class VitalService:
 
     async def create(self, vital_in: VitalCreate, user: User) -> Vital:
         """Persist a single vital after normalizing its timestamp to UTC seconds."""
-        timestamp = self._normalize_timestamp(vital_in.timestamp or datetime.utcnow())
+        timestamp = self._normalize_timestamp(vital_in.timestamp or datetime.now(timezone.utc))
         vital = Vital(
             type=vital_in.type,
             value=vital_in.value,
@@ -112,7 +112,7 @@ class VitalService:
     async def create_bulk(self, bulk_in: VitalBulkCreate, user: User) -> List[Vital]:
         """Insert multiple vitals, reusing a normalized timestamp when one is not provided."""
         vitals: List[Vital] = []
-        now = self._normalize_timestamp(datetime.utcnow())
+        now = self._normalize_timestamp(datetime.now(timezone.utc))
         for vital_in in bulk_in.vitals:
             timestamp = self._normalize_timestamp(vital_in.timestamp or now)
             # Each Vital uses either its provided timestamp or a shared normalized 'now'

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.modules.vitals.models import Vital, VitalType
-from app.modules.vitals.schemas import VitalCreate
+from app.modules.vitals.schemas import DashboardVitals, VitalBulkCreate, VitalCreate
 from app.modules.vitals.service import VitalConnectionManager, VitalService
 
 
@@ -132,3 +132,85 @@ async def test_connection_manager_handles_connections_and_failed_broadcast() -> 
 
     manager.disconnect_frontend(good)
     assert not manager.frontend_connections
+
+
+@pytest.mark.asyncio
+async def test_create_bulk_reuses_normalized_now_for_missing_timestamps(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    explicit = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    bulk = VitalBulkCreate(
+        vitals=[
+            VitalCreate(type=VitalType.BPM, value=70, unit="bpm"),
+            VitalCreate(type=VitalType.SPO2, value=98, unit="%"),
+            VitalCreate(type=VitalType.BPM, value=65, unit="bpm", timestamp=explicit),
+        ]
+    )
+
+    vitals = await service.create_bulk(bulk, user)
+
+    assert vitals[0].timestamp == vitals[1].timestamp  # both used shared normalized now
+    assert vitals[0].timestamp.tzinfo == timezone.utc
+    assert vitals[0].timestamp.microsecond == 0
+    assert vitals[-1].timestamp == explicit
+    assert vitals[-1].value == 65
+
+
+@pytest.mark.asyncio
+async def test_first_available_respects_priority_over_recency(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    older = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    newer = older + timedelta(days=1)
+
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=72, unit="bpm", timestamp=newer), user
+    )
+    await service.create(
+        VitalCreate(type=VitalType.HEART_RATE, value=65, unit="bpm", timestamp=older),
+        user,
+    )
+
+    # Heart rate is chosen even though BPM is newer because it comes first in priority
+    chosen = await service._first_available(user=user, types=[VitalType.HEART_RATE, VitalType.BPM])
+    assert chosen.type == VitalType.HEART_RATE
+
+    fallback = await service._first_available(user=user, types=[VitalType.TEMPERATURE, VitalType.BPM])
+    assert fallback.type == VitalType.BPM
+
+
+def test_normalize_and_ensure_utc_helpers() -> None:
+    service = VitalService()
+
+    naive = datetime(2024, 1, 1, 12, 0, 0, 123456)
+    normalized = service._normalize_timestamp(naive)
+    assert normalized.tzinfo == timezone.utc
+    assert normalized.microsecond == 0
+
+    offset_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+    normalized_offset = service._normalize_timestamp(offset_dt)
+    assert normalized_offset.tzinfo == timezone.utc
+    assert normalized_offset.hour == 17
+
+    ensured = service._ensure_utc(datetime(2024, 1, 1, 1, 2, 3))
+    assert ensured.tzinfo == timezone.utc
+    offset_aware = service._ensure_utc(
+        datetime(2024, 1, 1, 12, 0, tzinfo=timezone(timedelta(hours=3)))
+    )
+    assert offset_aware.hour == 9
+    assert offset_aware.tzinfo == timezone.utc
+
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_empty_when_no_vitals(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    summary = await service.get_dashboard_summary(user)
+
+    assert summary.status == "empty"
+    assert summary.statusNote == "No vitals found"
+    assert summary.lastUpdated is None
+    assert summary.vitals == DashboardVitals()

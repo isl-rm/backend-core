@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from beanie import Document, Link
@@ -28,7 +28,7 @@ class Vital(Document):
     type: VitalType
     value: float
     unit: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     user: Link[User]
 
     class Settings:
