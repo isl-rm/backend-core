@@ -7,6 +7,8 @@ from app.modules.vitals.models import VitalType
 
 
 class VitalCreate(BaseModel):
+    """Inbound payload for a single vital measurement."""
+
     type: VitalType
     value: float
     unit: str
@@ -21,6 +23,8 @@ class VitalCreate(BaseModel):
 
 
 class VitalBulkCreate(BaseModel):
+    """Inbound payload for batching multiple vital measurements."""
+
     vitals: list[VitalCreate] = Field(default_factory=list)
 
     @field_validator("vitals")
@@ -32,6 +36,8 @@ class VitalBulkCreate(BaseModel):
 
 
 class DashboardVitals(BaseModel):
+    """Latest vitals shaped for the dashboard contract."""
+
     ecg: str = "0"
     bloodPressure: str = "0"
     heartRate: float = 0.0
@@ -43,6 +49,8 @@ class DashboardVitals(BaseModel):
 
 
 class DashboardSummary(BaseModel):
+    """Aggregate response for the vitals dashboard."""
+
     status: str = "empty"
     statusNote: str = "empty"
     lastUpdated: Optional[datetime] = None

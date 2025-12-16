@@ -8,6 +8,8 @@ from app.modules.users.models import User
 
 
 class VitalType(str, Enum):
+    """Supported vital sign measurement types."""
+
     ECG = "ecg"
     BPM = "bpm"
     GYROSCOPE = "gyroscope"
@@ -21,6 +23,8 @@ class VitalType(str, Enum):
 
 
 class Vital(Document):
+    """Persisted vital sign measurement associated with a user."""
+
     type: VitalType
     value: float
     unit: str

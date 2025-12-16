@@ -1,7 +1,16 @@
 import json
+"""HTTP and WebSocket endpoints for recording and streaming vitals."""
+
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from jose import JWTError, jwt
 from pydantic import ValidationError
 
@@ -56,9 +65,7 @@ async def read_vitals(
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> List[Vital]:
-    """
-    Get vital signs history for the authenticated user.
-    """
+    """Get a user's vital history with optional type filter and pagination."""
     return await service.get_multi(user=current_user, type=type, limit=limit, skip=skip)
 
 
@@ -72,9 +79,7 @@ async def read_latest_vital(
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> Vital:
-    """
-    Get the latest vital sign for the authenticated user.
-    """
+    """Fetch the newest vital for the authenticated user, optionally by type."""
     vital = await service.get_latest(user=current_user, type=type)
     if not vital:
         raise HTTPException(status_code=404, detail="No vitals found")
@@ -90,9 +95,7 @@ async def read_dashboard_summary(
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> DashboardSummary:
-    """
-    Return the latest vitals mapped to the dashboard contract.
-    """
+    """Return the latest vitals mapped to the dashboard contract."""
     return await service.get_dashboard_summary(user=current_user)
 
 
@@ -104,9 +107,9 @@ async def websocket_mobile(
 ) -> None:
     """
     WebSocket endpoint for mobile app (producer).
-    Receives vital data, saves it to DB, and broadcasts it to connected frontends.
-    Requires 'token' query parameter for authentication.
+    Auth via `token` query param, then stream inbound vitals to persistence + broadcast.
     """
+    # Step 1: Validate the JWT token before accepting any messages
     try:
         payload = jwt.decode(
             token, security.SECRET_KEY, algorithms=[security.ALGORITHM]
@@ -123,6 +126,7 @@ async def websocket_mobile(
 
     await vital_manager.connect_mobile(websocket)
     try:
+        # Step 3: Keep receiving messages, validating and forwarding each one
         while True:
             data = await websocket.receive_text()
             try:
