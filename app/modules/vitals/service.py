@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import WebSocket
@@ -84,10 +84,11 @@ class VitalService:
             if not vital:
                 continue
 
+            timestamp = self._ensure_utc(vital.timestamp)
             setattr(vitals_model, field_name, self._format_dashboard_value(field_name, vital))
 
-            if not last_updated or vital.timestamp > last_updated:
-                last_updated = vital.timestamp
+            if not last_updated or timestamp > last_updated:
+                last_updated = timestamp
 
         status = "empty" if last_updated is None else "ok"
         status_note = "No vitals found" if last_updated is None else "Latest vitals available"
@@ -136,8 +137,22 @@ class VitalService:
         return vital.value
 
     def _normalize_timestamp(self, value: datetime) -> datetime:
-        # Force second-level precision (strip microseconds)
+        """
+        Normalize timestamps to second precision and ensure they are timezone-aware in UTC.
+        """
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
         return value.replace(microsecond=0)
+
+    def _ensure_utc(self, value: datetime) -> datetime:
+        """
+        Ensure datetime is timezone-aware in UTC without altering seconds precision.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class VitalConnectionManager:

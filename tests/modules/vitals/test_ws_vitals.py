@@ -3,6 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core import security
+from app.modules.vitals.service import vital_manager
 
 # Use a mock user object to bypass Pydantic validation complexity
 mock_user = MagicMock()
@@ -56,3 +57,36 @@ def test_vitals_mobile_auth_failure() -> None:
     with pytest.raises(Exception): # TestClient raises generic WebSocketDisconnect or similar on reject
          with client.websocket_connect("/api/v1/vitals/ws/mobile?token=invalid"):
              pass
+
+
+@patch("app.modules.users.models.User.get", new_callable=AsyncMock)
+def test_mobile_ws_rejects_missing_user(mock_get) -> None:
+    mock_get.return_value = None
+    client = TestClient(app)
+    token = security.create_access_token(subject="ghost-user")
+
+    with pytest.raises(Exception):
+        with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}"):
+            pass
+
+
+@patch("app.modules.users.models.User.get", new_callable=AsyncMock)
+@patch("app.modules.vitals.service.VitalService.process_vital_stream", new_callable=AsyncMock)
+def test_mobile_ws_ignores_invalid_json(mock_process, mock_get) -> None:
+    mock_get.return_value = mock_user
+    client = TestClient(app)
+    token = security.create_access_token(subject=mock_user.id)
+
+    with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}") as mobile_ws:
+        mobile_ws.send_text("not-json")  # triggers ValidationError/JSONDecodeError path
+
+    mock_process.assert_not_awaited()
+    assert not vital_manager.mobile_connections
+
+
+def test_frontend_ws_connect_and_disconnect() -> None:
+    client = TestClient(app)
+    with client.websocket_connect("/api/v1/vitals/ws/frontend") as frontend_ws:
+        frontend_ws.send_text("ping")  # satisfy receive loop once
+
+    assert not vital_manager.frontend_connections
