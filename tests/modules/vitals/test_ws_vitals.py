@@ -1,8 +1,10 @@
+import json
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core import security
+from app.modules.vitals.models import VitalType
 from app.modules.vitals.service import vital_manager
 
 # Use a mock user object to bypass Pydantic validation complexity
@@ -50,6 +52,60 @@ def test_vitals_streaming_with_persistence(mock_create, mock_get) -> None:
     args, _ = mock_create.call_args
     # args[0] is vital_in, args[1] is user
     assert args[1] == mock_user
+
+
+@patch("app.modules.users.models.User.get", new_callable=AsyncMock)
+@patch("app.modules.vitals.service.VitalService.create", new_callable=AsyncMock)
+def test_ecg_streaming_with_bpm_only(mock_create, mock_get) -> None:
+    """
+    ECG messages with only BPM should be persisted and broadcast with the structured payload.
+    """
+    client = TestClient(app)
+    mock_get.return_value = mock_user
+    mock_create.return_value = None
+
+    token = security.create_access_token(subject=mock_user.id)
+    with client.websocket_connect("/api/v1/vitals/ws/frontend") as frontend_ws:
+        with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}") as mobile_ws:
+            mobile_ws.send_text(json.dumps({"type": "ecg", "bpm": 72}))
+            data = frontend_ws.receive_text()
+
+    body = json.loads(data)
+    assert body["type"] == VitalType.ECG
+    assert body["bpm"] == 72
+    assert body["sampleRate"] == 250
+
+    mock_create.assert_awaited_once()
+    args, _ = mock_create.call_args
+    vital_in = args[0]
+    assert vital_in.type == VitalType.ECG
+    assert vital_in.value == 72
+    assert vital_in.unit == "bpm"
+
+
+@patch("app.modules.users.models.User.get", new_callable=AsyncMock)
+@patch("app.modules.vitals.service.VitalService.create", new_callable=AsyncMock)
+def test_ecg_streaming_with_samples_only(mock_create, mock_get) -> None:
+    """
+    ECG messages with only samples should be broadcast without forcing persistence.
+    """
+    client = TestClient(app)
+    mock_get.return_value = mock_user
+    samples = [0.1, 0.2, 0.3]
+
+    token = security.create_access_token(subject=mock_user.id)
+    with client.websocket_connect("/api/v1/vitals/ws/frontend") as frontend_ws:
+        with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}") as mobile_ws:
+            mobile_ws.send_text(json.dumps({"type": "ecg", "samples": samples}))
+            data = frontend_ws.receive_text()
+
+    body = json.loads(data)
+    assert body["type"] == VitalType.ECG
+    assert body["samples"] == samples
+    assert body["sampleRate"] == 250
+    assert "bpm" not in body
+
+    mock_create.assert_not_awaited()
 
 def test_vitals_mobile_auth_failure() -> None:
     """Test connection is rejected without valid token"""

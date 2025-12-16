@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.vitals.models import VitalType
 
@@ -20,6 +20,54 @@ class VitalCreate(BaseModel):
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value, tz=timezone.utc)
         return value
+
+
+class EcgStreamPayload(BaseModel):
+    """
+    Streaming payload for ECG data delivered over WebSocket.
+
+    Supports either a BPM reading, raw waveform samples, or both.
+    """
+
+    bpm: float | None = None
+    samples: list[float] | None = None
+    sample_rate: int = Field(default=250, alias="sampleRate")
+    timestamp: Optional[datetime] = None
+    value: float | None = None
+    unit: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_epoch_timestamp(cls, value: object) -> object:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def lift_nested_payload(cls, data: object) -> object:
+        """Allow clients to nest ECG data under a 'payload' key."""
+        if not isinstance(data, dict):
+            return data
+        payload = data.get("payload")
+        if isinstance(payload, dict):
+            # Payload fields take precedence only when not already provided at the top level
+            merged = {**payload, **data}
+            return merged
+        return data
+
+    @model_validator(mode="after")
+    def validate_presence(self) -> "EcgStreamPayload":
+        has_bpm_like_value = self.bpm is not None or self.value is not None
+        if not has_bpm_like_value and not self.samples:
+            raise ValueError("ECG payload must include bpm or samples")
+        if self.samples is not None and len(self.samples) == 0:
+            raise ValueError("samples cannot be empty when provided")
+        if self.sample_rate <= 0:
+            raise ValueError("sampleRate must be positive")
+        return self
 
 
 class VitalBulkCreate(BaseModel):
