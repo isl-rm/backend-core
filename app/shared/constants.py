@@ -1,7 +1,7 @@
-from enum import StrEnum
+from enum import Enum
 
 
-class Role(StrEnum):
+class Role(str, Enum):
     USER = "USER"
     ADMIN = "ADMIN"
     DOCTOR = "DOCTOR"
@@ -11,7 +11,7 @@ class Role(StrEnum):
     FIRST_RESPONDER = "FIRST_RESPONDER"
 
 
-class UserStatus(StrEnum):
+class UserStatus(str, Enum):
     ACTIVE = "active"
     DISABLED = "disabled"
     PENDING = "pending"

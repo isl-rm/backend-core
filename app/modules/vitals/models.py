@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from beanie import Document, Link
@@ -8,6 +8,8 @@ from app.modules.users.models import User
 
 
 class VitalType(str, Enum):
+    """Supported vital sign measurement types."""
+
     ECG = "ecg"
     BPM = "bpm"
     GYROSCOPE = "gyroscope"
@@ -21,10 +23,12 @@ class VitalType(str, Enum):
 
 
 class Vital(Document):
+    """Persisted vital sign measurement associated with a user."""
+
     type: VitalType
     value: float
     unit: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     user: Link[User]
 
     class Settings:
