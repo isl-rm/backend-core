@@ -29,13 +29,16 @@ async def test_process_vital_stream_persists_and_broadcasts(monkeypatch: pytest.
     user = await create_user_func()
     vital_in = VitalCreate(type=VitalType.BPM, value=70, unit="bpm")
 
+    # Step 1: Stub persistence and broadcast to observe calls
     create_mock = AsyncMock()
     monkeypatch.setattr(service, "create", create_mock)
     broadcast_mock = AsyncMock()
     monkeypatch.setattr("app.modules.vitals.service.vital_manager.broadcast_vital", broadcast_mock)
 
+    # Step 2: Invoke streaming handler with payload to trigger both actions
     await service.process_vital_stream(vital_in, user, raw_data='{"type":"bpm"}')
 
+    # Step 3: Verify both persistence and broadcast were executed
     create_mock.assert_awaited_once_with(vital_in, user)
     broadcast_mock.assert_awaited_once_with('{"type":"bpm"}')
 
@@ -46,6 +49,7 @@ async def test_get_multi_filters_by_type(create_user_func) -> None:
     user = await create_user_func()
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    # Seed varied vitals to exercise type filter and ordering
     await service.create(
         VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=base),
         user,
@@ -73,6 +77,7 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
     newest = datetime(2024, 2, 1, 12, 0, tzinfo=timezone.utc)
     older = newest - timedelta(days=1)
 
+    # Seed a newer ECG and older blood pressure to ensure newest timestamp wins
     await service.create(
         VitalCreate(type=VitalType.ECG, value=1.23, unit="mv", timestamp=newest),
         user,
@@ -108,12 +113,14 @@ async def test_format_dashboard_value_ecg_stringifies(create_user_func) -> None:
 async def test_connection_manager_handles_connections_and_failed_broadcast() -> None:
     manager = VitalConnectionManager()
     mobile_ws = _FakeWebSocket()
+    # Track mobile lifecycle
     await manager.connect_mobile(mobile_ws)
     assert mobile_ws.accepted
     assert mobile_ws in manager.mobile_connections
     manager.disconnect_mobile(mobile_ws)
     assert mobile_ws not in manager.mobile_connections
 
+    # Broadcast should deliver to healthy frontends and drop broken ones
     good = _FakeWebSocket()
     bad = _FakeWebSocket(should_fail=True)
     await manager.connect_frontend(good)

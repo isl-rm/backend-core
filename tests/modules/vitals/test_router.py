@@ -26,15 +26,17 @@ async def test_create_and_list_vitals(client: AsyncClient, create_user_func) -> 
         "timestamp": 1_700_000_000.987,  # epoch seconds to exercise validator
     }
 
+    # Step 1: Create a vital and ensure the endpoint accepts it
     create_resp = await client.post("/api/v1/vitals/", json=payload, headers=headers)
     assert create_resp.status_code == 201
 
-    # Verify it persisted with timestamp normalized to second precision
+    # Step 2: Verify it persisted with timestamp normalized to second precision
     saved = await Vital.find_one(Vital.user.id == user.id)
     assert saved is not None
     assert saved.type == VitalType.BPM
     assert saved.timestamp.microsecond == 0
 
+    # Step 3: List vitals and confirm the created record is returned
     list_resp = await client.get(
         "/api/v1/vitals/?type=bpm&limit=5", headers=headers
     )
@@ -68,6 +70,7 @@ async def test_bulk_create_and_latest_endpoint(
         ]
     }
 
+    # Step 1: Bulk insert and confirm ordering (newest first)
     bulk_resp = await client.post(
         "/api/v1/vitals/bulk", json=bulk_payload, headers=headers
     )
@@ -76,6 +79,7 @@ async def test_bulk_create_and_latest_endpoint(
     # Sorted newest first
     assert [item["value"] for item in data] == [101, 95]
 
+    # Step 2: The latest endpoint should surface the newest bulk value
     latest_resp = await client.post("/api/v1/vitals/latest?type=bpm", headers=headers)
     assert latest_resp.status_code == 200
     assert latest_resp.json()["value"] == 101
@@ -102,6 +106,7 @@ async def test_dashboard_summary_maps_latest_values(
     service = VitalService()
 
     base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    # Seed multiple vitals to ensure the dashboard picks latest per category
     await service.create(
         VitalCreate(
             type=VitalType.BLOOD_PRESSURE,
@@ -131,6 +136,7 @@ async def test_dashboard_summary_maps_latest_values(
         user,
     )
 
+    # Exercise: fetch dashboard summary and validate mapped values/timestamps
     summary_resp = await client.get("/api/v1/vitals/dashboard", headers=headers)
     assert summary_resp.status_code == 200
     summary = summary_resp.json()

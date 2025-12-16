@@ -38,6 +38,7 @@ async def test_create_vital_delegates_to_service() -> None:
             return _vital_from_create(vital_in, user)
 
     service = FakeService()
+    # Exercise: route should delegate persistence to service
     result = await router.create_vital(vital_in=vital_in, current_user=user, service=service)
 
     assert service.called_with == (vital_in, user)
@@ -63,6 +64,7 @@ async def test_create_vitals_bulk_delegates_to_service() -> None:
             return [_vital_from_create(v, user) for v in bulk_in.vitals]
 
     service = FakeService()
+    # Exercise: route should pass bulk payload and user through untouched
     result = await router.create_vitals_bulk(bulk_in=bulk, current_user=user, service=service)
 
     assert service.called_with == (bulk, user)
@@ -86,6 +88,7 @@ async def test_read_vitals_forwards_filters() -> None:
             ]
 
     service = FakeService()
+    # Exercise: ensure filters flow to the service call
     result = await router.read_vitals(
         type=VitalType.BPM, limit=5, skip=1, current_user=user, service=service
     )

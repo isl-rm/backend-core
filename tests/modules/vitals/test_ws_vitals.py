@@ -21,8 +21,8 @@ def test_vitals_streaming_with_persistence(mock_create, mock_get) -> None:
     4. Verify data is broadcasted.
     """
     client = TestClient(app)
-    
-    # Setup Mocks
+
+    # Setup mocks for user lookup and persistence
     mock_get.return_value = mock_user
     mock_create.return_value = None
 
@@ -54,6 +54,7 @@ def test_vitals_streaming_with_persistence(mock_create, mock_get) -> None:
 def test_vitals_mobile_auth_failure() -> None:
     """Test connection is rejected without valid token"""
     client = TestClient(app)
+    # Attempt connect with bad token should raise through TestClient wrapper
     with pytest.raises(Exception): # TestClient raises generic WebSocketDisconnect or similar on reject
          with client.websocket_connect("/api/v1/vitals/ws/mobile?token=invalid"):
              pass
@@ -65,6 +66,7 @@ def test_mobile_ws_rejects_missing_user(mock_get) -> None:
     client = TestClient(app)
     token = security.create_access_token(subject="ghost-user")
 
+    # Auth passes but user lookup fails; connection should be rejected
     with pytest.raises(Exception):
         with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}"):
             pass
@@ -77,6 +79,7 @@ def test_mobile_ws_ignores_invalid_json(mock_process, mock_get) -> None:
     client = TestClient(app)
     token = security.create_access_token(subject=mock_user.id)
 
+    # Send invalid payload to exercise validation failure path
     with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}") as mobile_ws:
         mobile_ws.send_text("not-json")  # triggers ValidationError/JSONDecodeError path
 
@@ -86,6 +89,7 @@ def test_mobile_ws_ignores_invalid_json(mock_process, mock_get) -> None:
 
 def test_frontend_ws_connect_and_disconnect() -> None:
     client = TestClient(app)
+    # Frontend connects, sends one heartbeat, then disconnects cleanly
     with client.websocket_connect("/api/v1/vitals/ws/frontend") as frontend_ws:
         frontend_ws.send_text("ping")  # satisfy receive loop once
 
