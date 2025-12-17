@@ -9,6 +9,7 @@ from app.modules.vitals.schemas import (
     DashboardVitals,
     VitalBulkCreate,
     VitalCreate,
+    VitalSeriesResponse,
 )
 from app.modules.vitals.service import VitalConnectionManager, VitalService
 
@@ -248,3 +249,74 @@ async def test_dashboard_summary_empty_when_no_vitals(create_user_func) -> None:
     assert summary.statusNote == "No vitals found"
     assert summary.lastUpdated is None
     assert summary.vitals == DashboardVitals()
+
+
+@pytest.mark.asyncio
+async def test_get_series_switches_between_raw_and_daily_average(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=start), user)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=start + timedelta(days=1)),
+        user,
+    )
+
+    raw = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=2),
+    )
+    assert isinstance(raw, VitalSeriesResponse)
+    assert raw.mode == "raw"
+    assert len(raw.data) == 2
+    paged_raw = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=2),
+        limit=1,
+        skip=1,
+    )
+    assert paged_raw.mode == "raw"
+    assert len(paged_raw.data) == 1
+    assert paged_raw.data[0].value == 60
+
+    averaged = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=4),
+        limit=1,
+        skip=1,
+    )
+    assert averaged.mode == "daily_average"
+    assert len(averaged.data) == 1  # paginated slice of day buckets
+    assert averaged.data[0].average == pytest.approx(70.0)
+
+
+@pytest.mark.asyncio
+async def test_get_series_rejects_non_numeric_values(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+    ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    await service.create(
+        VitalCreate(
+            type=VitalType.BLOOD_PRESSURE,
+            blood_pressure=BloodPressureReading(systolic=120, diastolic=80),
+            unit="mmHg",
+            timestamp=ts,
+        ),
+        user,
+    )
+
+    with pytest.raises(ValueError):
+        await service.get_series(
+            user=user,
+            type=VitalType.BLOOD_PRESSURE,
+            start=ts,
+            end=ts + timedelta(days=7),
+        )

@@ -1,7 +1,7 @@
 import json
 """HTTP and WebSocket endpoints for recording and streaming vitals."""
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import structlog
@@ -27,6 +27,7 @@ from app.modules.vitals.schemas import (
     EcgStreamPayload,
     VitalBulkCreate,
     VitalCreate,
+    VitalSeriesResponse,
     VitalsQueryParams,
 )
 from app.modules.vitals.service import VitalService, vital_manager
@@ -41,13 +42,17 @@ async def get_vitals_query_params(
     limit: int = Query(100, ge=1, le=1000, description="Maximum items to return"),
     skip: int = Query(0, ge=0, description="Items to skip for pagination"),
     start: datetime | None = Query(
-        None, description="Start of date range (ISO 8601 or epoch seconds)"
+        None,
+        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
     ),
     end: datetime | None = Query(
-        None, description="End of date range (ISO 8601 or epoch seconds)"
+        None,
+        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
     ),
 ) -> VitalsQueryParams:
-    """Expose query params explicitly so Swagger shows them."""
+    """Expose query params explicitly so Swagger shows them, defaulting to the last 24 hours."""
+    end = end or datetime.now(timezone.utc)
+    start = start or (end - timedelta(days=1))
     return VitalsQueryParams(type=type, limit=limit, skip=skip, start=start, end=end)
 
 
@@ -88,7 +93,7 @@ async def read_vitals(
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> List[Vital]:
-    """Get a user's vital history with optional type filter and pagination."""
+    """Get a user's vital history with optional type filter and pagination (defaults to last 24 hours)."""
     return await service.get_multi(
         user=current_user,
         type=params.type,
@@ -97,6 +102,45 @@ async def read_vitals(
         start=params.start,
         end=params.end,
     )
+
+
+@router.get(
+    "/series",
+    response_model=VitalSeriesResponse,
+    summary="Get vitals time series (raw or daily average)",
+)
+async def read_vital_series(
+    type: VitalType = Query(..., description="Vital type to retrieve"),
+    start: datetime | None = Query(
+        None,
+        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
+    ),
+    end: datetime | None = Query(
+        None,
+        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
+    ),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="Maximum items to return (raw points or daily buckets)",
+    ),
+    skip: int = Query(0, ge=0, description="Items to skip for pagination"),
+    current_user: User = Depends(deps.get_current_user),
+    service: VitalService = Depends(VitalService),
+) -> VitalSeriesResponse:
+    """
+    Return raw data when the range is <=3 days; otherwise return daily averages.
+    Defaults to the last 24 hours and supports pagination.
+    """
+    try:
+        end = end or datetime.now(timezone.utc)
+        start = start or (end - timedelta(days=1))
+        return await service.get_series(
+            user=current_user, type=type, start=start, end=end, limit=limit, skip=skip
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(

@@ -38,7 +38,8 @@ async def test_create_and_list_vitals(client: AsyncClient, create_user_func) -> 
 
     # Step 3: List vitals and confirm the created record is returned
     list_resp = await client.get(
-        "/api/v1/vitals/?type=bpm&limit=5", headers=headers
+        "/api/v1/vitals/?type=bpm&limit=5&start=1600000000&end=1800000000",
+        headers=headers,
     )
     assert list_resp.status_code == 200
     items = list_resp.json()
@@ -81,6 +82,34 @@ async def test_list_vitals_respects_date_range(
     data = resp.json()
     assert len(data) == 1
     assert data[0]["value"] == 70
+
+
+@pytest.mark.asyncio
+async def test_list_vitals_defaults_to_last_day_window(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+    service = VitalService()
+
+    now = datetime.now(timezone.utc)
+    within_window = now - timedelta(hours=12)
+    outside_window = now - timedelta(days=4)
+
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=within_window),
+        user,
+    )
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=80, unit="bpm", timestamp=outside_window),
+        user,
+    )
+
+    resp = await client.get("/api/v1/vitals/", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["value"] == 60
 
 
 @pytest.mark.asyncio
@@ -189,3 +218,79 @@ async def test_dashboard_summary_maps_latest_values(
     if last_updated.tzinfo is None:
         last_updated = last_updated.replace(tzinfo=timezone.utc)
     assert last_updated == expected_latest
+
+
+@pytest.mark.asyncio
+async def test_series_returns_raw_within_three_days(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+    service = VitalService()
+
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=start), user)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=75, unit="bpm", timestamp=start + timedelta(days=2)),
+        user,
+    )
+
+    resp = await client.get(
+        "/api/v1/vitals/series",
+        params={
+            "type": "bpm",
+            "start": start.isoformat(),
+            "end": (start + timedelta(days=2, hours=12)).isoformat(),
+            "limit": 1,
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["mode"] == "raw"
+    assert len(payload["data"]) == 1
+    assert payload["data"][0]["value"] == 75
+
+
+@pytest.mark.asyncio
+async def test_series_returns_daily_averages_over_three_days(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+    service = VitalService()
+
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=start), user)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=80, unit="bpm", timestamp=start + timedelta(days=1, hours=2)),
+        user,
+    )
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=start + timedelta(days=1, hours=3)),
+        user,
+    )
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=90, unit="bpm", timestamp=start + timedelta(days=4, hours=1)),
+        user,
+    )
+
+    resp = await client.get(
+        "/api/v1/vitals/series",
+        params={
+            "type": "bpm",
+            "start": start.isoformat(),
+            "end": (start + timedelta(days=4, hours=12)).isoformat(),
+            "limit": 2,
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["mode"] == "daily_average"
+    averages = payload["data"]
+    # Sorted ascending by date buckets, limited to 2 buckets
+    assert [item["count"] for item in averages] == [1, 2]
+    assert [round(item["average"], 2) for item in averages] == [60.0, 75.0]

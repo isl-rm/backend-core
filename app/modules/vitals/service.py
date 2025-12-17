@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Iterable
 from typing import List, Optional
 
 from fastapi import WebSocket
@@ -8,8 +9,10 @@ from app.modules.vitals.models import Vital, VitalType
 from app.modules.vitals.schemas import (
     DashboardSummary,
     DashboardVitals,
+    DailyAveragePoint,
     VitalBulkCreate,
     VitalCreate,
+    VitalSeriesResponse,
 )
 
 
@@ -172,6 +175,75 @@ class VitalService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    async def get_series(
+        self,
+        user: User,
+        type: VitalType,
+        start: datetime,
+        end: datetime,
+        limit: int = 100,
+        skip: int = 0,
+    ) -> VitalSeriesResponse:
+        """
+        Return raw vitals when the requested range is <=3 days; otherwise return daily averages.
+        """
+        start_utc = self._ensure_utc(start)
+        end_utc = self._ensure_utc(end)
+        if start_utc > end_utc:
+            raise ValueError("start must be before end")
+
+        base_query = (
+            Vital.find(Vital.user.id == user.id)
+            .find(Vital.type == type)
+            .find(Vital.timestamp >= start_utc)
+            .find(Vital.timestamp <= end_utc)
+        )
+
+        if (end_utc - start_utc) <= timedelta(days=3):
+            vitals = await base_query.sort("-timestamp").skip(skip).limit(limit).to_list()
+            unit = vitals[0].unit if vitals else None
+            return VitalSeriesResponse(mode="raw", type=type, unit=unit, data=vitals)
+
+        vitals = await base_query.sort("-timestamp").to_list()
+        unit = vitals[0].unit if vitals else None
+        aggregates = self._aggregate_daily_average(vitals)
+        aggregates = aggregates[skip : skip + limit] if limit is not None else aggregates[skip:]
+        return VitalSeriesResponse(mode="daily_average", type=type, unit=unit, data=aggregates)
+
+    def _aggregate_daily_average(self, vitals: Iterable[Vital]) -> list[DailyAveragePoint]:
+        """Group vitals by UTC day and compute averages."""
+        buckets: dict[tuple[int, int, int], dict[str, float | int]] = {}
+
+        for vital in vitals:
+            timestamp = self._ensure_utc(vital.timestamp)
+            day_key = (timestamp.year, timestamp.month, timestamp.day)
+            value = self._as_float(vital.value)
+
+            bucket = buckets.setdefault(day_key, {"sum": 0.0, "count": 0})
+            bucket["sum"] = float(bucket["sum"]) + value
+            bucket["count"] = int(bucket["count"]) + 1
+
+        points: list[DailyAveragePoint] = []
+        for (year, month, day), bucket in sorted(buckets.items()):
+            avg = float(bucket["sum"]) / int(bucket["count"])
+            points.append(
+                DailyAveragePoint(
+                    date=datetime(year, month, day, tzinfo=timezone.utc),
+                    average=avg,
+                    count=int(bucket["count"]),
+                )
+            )
+        return points
+
+    def _as_float(self, value: object) -> float:
+        """Coerce vital values to float for aggregation or raise for non-numeric data."""
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(str(value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Cannot average non-numeric vital values for this type") from exc
 
 
 class VitalConnectionManager:

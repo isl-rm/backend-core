@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.modules.vitals.models import VitalType
+from app.modules.vitals.models import Vital, VitalType
 
 
 class BloodPressureReading(BaseModel):
@@ -182,3 +182,22 @@ class DashboardSummary(BaseModel):
     statusNote: str = "empty"
     lastUpdated: Optional[datetime] = None
     vitals: DashboardVitals = Field(default_factory=DashboardVitals)
+
+
+class DailyAveragePoint(BaseModel):
+    """Aggregated vital values grouped by UTC day."""
+
+    date: datetime
+    average: float
+    count: int
+
+
+class VitalSeriesResponse(BaseModel):
+    """
+    Time-series response that automatically switches between raw values and daily averages.
+    """
+
+    mode: Literal["raw", "daily_average"]
+    type: VitalType
+    unit: str | None = None
+    data: list[Vital | DailyAveragePoint]
