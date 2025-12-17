@@ -50,11 +50,17 @@ class VitalService:
         type: Optional[VitalType] = None,
         limit: int = 100,
         skip: int = 0,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> List[Vital]:
         """Return vitals for a user sorted newest-first with optional type filtering and pagination."""
         query = Vital.find(Vital.user.id == user.id)
         if type:
             query = query.find(Vital.type == type)
+        if start:
+            query = query.find(Vital.timestamp >= self._ensure_utc(start))
+        if end:
+            query = query.find(Vital.timestamp <= self._ensure_utc(end))
         vitals: List[Vital] = (
             await query.sort("-timestamp").skip(skip).limit(limit).to_list()
         )

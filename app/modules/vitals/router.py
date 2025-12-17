@@ -1,12 +1,15 @@
 import json
 """HTTP and WebSocket endpoints for recording and streaming vitals."""
 
+from datetime import datetime
 from typing import List, Optional
 
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -24,11 +27,28 @@ from app.modules.vitals.schemas import (
     EcgStreamPayload,
     VitalBulkCreate,
     VitalCreate,
+    VitalsQueryParams,
 )
 from app.modules.vitals.service import VitalService, vital_manager
 from app.shared import deps
 
 router = APIRouter()
+log = structlog.get_logger()
+
+
+async def get_vitals_query_params(
+    type: VitalType | None = Query(None, description="Filter by vital type"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum items to return"),
+    skip: int = Query(0, ge=0, description="Items to skip for pagination"),
+    start: datetime | None = Query(
+        None, description="Start of date range (ISO 8601 or epoch seconds)"
+    ),
+    end: datetime | None = Query(
+        None, description="End of date range (ISO 8601 or epoch seconds)"
+    ),
+) -> VitalsQueryParams:
+    """Expose query params explicitly so Swagger shows them."""
+    return VitalsQueryParams(type=type, limit=limit, skip=skip, start=start, end=end)
 
 
 @router.post(
@@ -64,14 +84,19 @@ async def create_vitals_bulk(
 
 @router.get("/", response_model=List[Vital], summary="Get vital signs history")
 async def read_vitals(
-    type: Optional[VitalType] = None,
-    limit: int = 100,
-    skip: int = 0,
+    params: VitalsQueryParams = Depends(get_vitals_query_params),
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> List[Vital]:
     """Get a user's vital history with optional type filter and pagination."""
-    return await service.get_multi(user=current_user, type=type, limit=limit, skip=skip)
+    return await service.get_multi(
+        user=current_user,
+        type=params.type,
+        limit=params.limit,
+        skip=params.skip,
+        start=params.start,
+        end=params.end,
+    )
 
 
 @router.post(
@@ -112,11 +137,9 @@ async def _authenticate_mobile_websocket(
         payload = jwt.decode(
             token, security.SECRET_KEY, algorithms=[security.ALGORITHM]
         )
-        print("debug:  payload", payload)
         token_data = payload.get("sub")
-        print("debug: token_data", token_data)
-    except (JWTError, ValidationError):
-        print("debug: JWTError or ValidationError")
+    except (JWTError, ValidationError) as exc:
+        log.warning("mobile websocket auth failed", reason="jwt_decode", error=str(exc))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return None
 
@@ -182,7 +205,6 @@ async def _process_mobile_message(
     """Route inbound mobile messages to ECG-specific or generic handlers."""
     try:
         data = json.loads(raw_message)
-        print("debug: data", data)
         if _is_ecg_payload(data):
             await _handle_ecg_payload(data, service, user)
         else:
@@ -202,24 +224,22 @@ async def websocket_mobile(
     WebSocket endpoint for mobile app (producer).
     Auth via `token` query param, then stream inbound vitals to persistence + broadcast.
     """
-    print("debug: Start of ws/mobile")
     user = await _authenticate_mobile_websocket(websocket, token)
     if not user:
-        print("debug: no user")
         return
 
     # Maintain connection registry for fan-out to frontend sockets
     await vital_manager.connect_mobile(websocket)
+    log.info("mobile websocket connected", user_id=str(user.id))
     try:
 
         while True:
             raw_message = await websocket.receive_text()
-            print("debug: mobile ", raw_message)
             await _process_mobile_message(raw_message, service, user)
     except WebSocketDisconnect:
         # Cleanly drop from registry on disconnect
-        print("debug: Websocket Disconnect")
         vital_manager.disconnect_mobile(websocket)
+        log.info("mobile websocket disconnected", user_id=str(user.id))
 
 
 @router.websocket("/ws/frontend")
@@ -236,3 +256,4 @@ async def websocket_frontend(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         vital_manager.disconnect_frontend(websocket)
+        log.info("frontend websocket disconnected")

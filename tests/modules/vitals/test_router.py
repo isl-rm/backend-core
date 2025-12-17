@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.core import security
 from app.modules.vitals.models import Vital, VitalType
-from app.modules.vitals.schemas import VitalCreate
+from app.modules.vitals.schemas import BloodPressureReading, VitalCreate
 from app.modules.vitals.service import VitalService
 
 
@@ -44,6 +44,43 @@ async def test_create_and_list_vitals(client: AsyncClient, create_user_func) -> 
     items = list_resp.json()
     assert len(items) == 1
     assert items[0]["value"] == pytest.approx(payload["value"])
+
+
+@pytest.mark.asyncio
+async def test_list_vitals_respects_date_range(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+    service = VitalService()
+
+    base = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=base - timedelta(days=1)),
+        user,
+    )
+    target_ts = base + timedelta(hours=1)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=target_ts),
+        user,
+    )
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=80, unit="bpm", timestamp=base + timedelta(days=1)),
+        user,
+    )
+
+    start = base.isoformat()
+    end = (base + timedelta(hours=2)).isoformat()
+    resp = await client.get(
+        "/api/v1/vitals/",
+        params={"type": "bpm", "start": start, "end": end},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["value"] == 70
 
 
 @pytest.mark.asyncio
@@ -110,7 +147,7 @@ async def test_dashboard_summary_maps_latest_values(
     await service.create(
         VitalCreate(
             type=VitalType.BLOOD_PRESSURE,
-            value=120,
+            blood_pressure=BloodPressureReading(systolic=120, diastolic=80),
             unit="mmHg",
             timestamp=base,
         ),
@@ -143,7 +180,7 @@ async def test_dashboard_summary_maps_latest_values(
 
     assert summary["status"] == "ok"
     assert summary["statusNote"] == "Latest vitals available"
-    assert summary["vitals"]["bloodPressure"] == "120.0 mmHg"
+    assert summary["vitals"]["bloodPressure"] == "120/80 mmHg"
     assert summary["vitals"]["heartRate"] == pytest.approx(77.0)
     assert summary["vitals"]["temperatureC"] == pytest.approx(37.2)
 

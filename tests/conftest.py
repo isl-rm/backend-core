@@ -21,11 +21,24 @@ class _FieldProxy:
     def __eq__(self, other: object) -> tuple[str, str, object]:  # type: ignore[override]
         return ("eq", self.name, other)
 
+    def __ge__(self, other: object) -> tuple[str, str, object]:  # type: ignore[override]
+        return ("ge", self.name, other)
+
+    def __le__(self, other: object) -> tuple[str, str, object]:  # type: ignore[override]
+        return ("le", self.name, other)
+
+    def __gt__(self, other: object) -> tuple[str, str, object]:  # type: ignore[override]
+        return ("gt", self.name, other)
+
+    def __lt__(self, other: object) -> tuple[str, str, object]:  # type: ignore[override]
+        return ("lt", self.name, other)
+
 
 def _install_field_proxies() -> None:
     # These proxies prevent AttributeErrors when code builds expressions like User.email == email
     User.email = _FieldProxy("email")  # type: ignore[attr-defined]
     Vital.type = _FieldProxy("type")  # type: ignore[attr-defined]
+    Vital.timestamp = _FieldProxy("timestamp")  # type: ignore[attr-defined]
     Vital.user = SimpleNamespace(id=_FieldProxy("user_id"))  # type: ignore[attr-defined]
     _dummy_settings = SimpleNamespace(pymongo_collection=None, use_state_management=False)
     # Prevent Beanie from requiring real collection initialization
@@ -35,10 +48,12 @@ def _install_field_proxies() -> None:
         Vital._document_settings = _dummy_settings  # type: ignore[attr-defined]
 
 
-def _extract_filter(expr: object) -> dict[str, object]:
-    if isinstance(expr, tuple) and len(expr) == 3 and expr[0] == "eq":
-        return {expr[1]: expr[2]}
-    return {}
+def _extract_filters(expr: object) -> list[tuple[str, str, object]]:
+    if isinstance(expr, tuple) and len(expr) == 3:
+        op, field, value = expr
+        if op in {"eq", "ge", "le", "gt", "lt"}:
+            return [(op, field, value)]
+    return []
 
 
 def _patch_user_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -> None:
@@ -61,7 +76,8 @@ def _patch_user_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) ->
 
     async def _find_one(expr: object = None) -> User | None:
         email = None
-        filt = _extract_filter(expr)
+        filt_items = _extract_filters(expr)
+        filt = {field: value for op, field, value in filt_items if op == "eq"}
         if "email" in filt:
             email = filt["email"]
         for user in store["users"].values():
@@ -92,15 +108,15 @@ def _patch_vital_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -
             await _insert(v)
 
     class _FakeQuery:
-        def __init__(self, filters: dict[str, object] | None = None) -> None:
-            self.filters = filters or {}
+        def __init__(self, filters: list[tuple[str, str, object]] | None = None) -> None:
+            self.filters = filters or []
             self._sort_field: str | None = None
             self._descending = False
             self._skip = 0
             self._limit: int | None = None
 
         def find(self, expr: object) -> "_FakeQuery":
-            merged = {**self.filters, **_extract_filter(expr)}
+            merged = [*self.filters, *_extract_filters(expr)]
             return _FakeQuery(merged)
 
         def sort(self, sort_spec: str) -> "_FakeQuery":
@@ -117,11 +133,25 @@ def _patch_vital_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -
             return self
 
         def _matches(self, vital: Vital) -> bool:
-            for key, value in self.filters.items():
-                if key == "user_id":
-                    if str(getattr(vital.user, "id", None)) != str(value):
+            for op, field, value in self.filters:
+                attr = None
+                if field == "user_id":
+                    attr = getattr(vital.user, "id", None)
+                    if op == "eq" and str(attr) != str(value):
                         return False
-                elif getattr(vital, key, None) != value:
+                    continue
+                attr = getattr(vital, field, None)
+                if op == "eq" and attr != value:
+                    return False
+                if attr is None:
+                    return False
+                if op == "ge" and not (attr >= value):
+                    return False
+                if op == "le" and not (attr <= value):
+                    return False
+                if op == "gt" and not (attr > value):
+                    return False
+                if op == "lt" and not (attr < value):
                     return False
             return True
 
@@ -143,7 +173,7 @@ def _patch_vital_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -
             return items[0] if items else None
 
     def _find(expr: object = None) -> _FakeQuery:
-        return _FakeQuery(_extract_filter(expr))
+        return _FakeQuery(_extract_filters(expr))
 
     async def _find_one(expr: object = None) -> Vital | None:
         return await _find(expr).first_or_none()

@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.modules.vitals.models import Vital, VitalType
-from app.modules.vitals.schemas import DashboardVitals, VitalBulkCreate, VitalCreate
+from app.modules.vitals.schemas import (
+    BloodPressureReading,
+    DashboardVitals,
+    VitalBulkCreate,
+    VitalCreate,
+)
 from app.modules.vitals.service import VitalConnectionManager, VitalService
 
 
@@ -70,6 +75,30 @@ async def test_get_multi_filters_by_type(create_user_func) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_multi_filters_by_date_range(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    base = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    before = base - timedelta(days=1)
+    inside = base + timedelta(hours=1)
+    after = base + timedelta(days=1)
+
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=before), user)
+    await service.create(VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=inside), user)
+    await service.create(VitalCreate(type=VitalType.BPM, value=80, unit="bpm", timestamp=after), user)
+
+    vitals = await service.get_multi(
+        user=user,
+        type=VitalType.BPM,
+        start=base,
+        end=base + timedelta(hours=2),
+    )
+
+    assert [v.value for v in vitals] == [70]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_summary_retains_latest_timestamp_when_older_values_present(create_user_func) -> None:
     service = VitalService()
     user = await create_user_func()
@@ -83,7 +112,12 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
         user,
     )
     await service.create(
-        VitalCreate(type=VitalType.BLOOD_PRESSURE, value=110, unit="mmHg", timestamp=older),
+        VitalCreate(
+            type=VitalType.BLOOD_PRESSURE,
+            blood_pressure=BloodPressureReading(systolic=110, diastolic=70),
+            unit="mmHg",
+            timestamp=older,
+        ),
         user,
     )
 
@@ -91,7 +125,7 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
 
     assert summary.lastUpdated == newest
     assert summary.vitals.ecg == "1.23"
-    assert summary.vitals.bloodPressure == "110.0 mmHg"
+    assert summary.vitals.bloodPressure == "110/70 mmHg"
 
 
 @pytest.mark.asyncio
