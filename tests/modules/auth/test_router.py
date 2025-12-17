@@ -32,6 +32,23 @@ async def test_login_access_token_sets_refresh_cookie(
 
 
 @pytest.mark.asyncio
+async def test_login_accepts_username_field_for_swagger(
+    client: AsyncClient, create_user_func
+):
+    password = "password123"
+    user = await create_user_func(password=password)
+
+    response = await client.post(
+        "/api/v1/login/access-token",
+        data={"username": user.email, "password": password},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
 async def test_login_access_token_failed(client: AsyncClient):
     response = await client.post(
         "/api/v1/login/access-token",

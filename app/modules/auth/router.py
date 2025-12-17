@@ -60,7 +60,14 @@ async def login_access_token(
 ) -> Any:
     """
     OAuth2 compatible token login, get an access token for future requests.
+    When authorizing via Swagger UI, put your email in the `username` field.
     """
+    if not form_data.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email or username is required",
+        )
+
     user = await auth_service.authenticate(form_data.email, form_data.password)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect email or password")
