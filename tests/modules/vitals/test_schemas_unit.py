@@ -3,7 +3,12 @@ from datetime import datetime, timezone
 import pytest
 
 from app.modules.vitals.models import VitalType
-from app.modules.vitals.schemas import EcgStreamPayload, VitalBulkCreate, VitalCreate
+from app.modules.vitals.schemas import (
+    BloodPressureReading,
+    EcgStreamPayload,
+    VitalBulkCreate,
+    VitalCreate,
+)
 
 
 def test_vital_create_converts_epoch_timestamp() -> None:
@@ -12,6 +17,30 @@ def test_vital_create_converts_epoch_timestamp() -> None:
     model = VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=ts)
 
     assert model.timestamp == datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def test_vital_create_accepts_structured_blood_pressure() -> None:
+    model = VitalCreate(
+        type=VitalType.BLOOD_PRESSURE,
+        blood_pressure=BloodPressureReading(systolic=118, diastolic=76),
+        unit="mmHg",
+    )
+
+    assert model.value == "118/76"
+    assert model.blood_pressure.as_string() == "118/76"
+
+
+def test_vital_create_parses_slash_separated_blood_pressure() -> None:
+    model = VitalCreate(
+        type=VitalType.BLOOD_PRESSURE,
+        value="120/80",
+        unit="mmHg",
+    )
+
+    assert model.value == "120/80"
+    assert model.blood_pressure is not None
+    assert model.blood_pressure.systolic == 120
+    assert model.blood_pressure.diastolic == 80
 
 
 def test_vital_bulk_create_requires_vitals() -> None:

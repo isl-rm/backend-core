@@ -1,18 +1,34 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.modules.vitals.models import VitalType
+from app.modules.vitals.models import Vital, VitalType
+
+
+class BloodPressureReading(BaseModel):
+    """Structured representation of a blood pressure reading."""
+
+    systolic: int = Field(gt=0)
+    diastolic: int = Field(gt=0)
+
+    def as_string(self) -> str:
+        return f"{self.systolic}/{self.diastolic}"
 
 
 class VitalCreate(BaseModel):
     """Inbound payload for a single vital measurement."""
 
     type: VitalType
-    value: float
+    value: float | str | None = None
     unit: str
     timestamp: Optional[datetime] = None
+    blood_pressure: BloodPressureReading | None = Field(
+        default=None, alias="bloodPressure"
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
     # Allow integer/float epoch seconds as timestamp input
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -20,6 +36,35 @@ class VitalCreate(BaseModel):
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value, tz=timezone.utc)
         return value
+
+    @model_validator(mode="after")
+    def normalize_value(self) -> "VitalCreate":
+        if self.type == VitalType.BLOOD_PRESSURE:
+            if self.blood_pressure:
+                self.value = self.blood_pressure.as_string()
+                return self
+            if isinstance(self.value, str) and "/" in self.value:
+                systolic_raw, diastolic_raw = self.value.split("/", 1)
+                systolic = int(systolic_raw)
+                diastolic = int(diastolic_raw)
+                bp = BloodPressureReading(systolic=systolic, diastolic=diastolic)
+                self.blood_pressure = bp
+                self.value = bp.as_string()
+                return self
+            if isinstance(self.value, (int, float)):
+                # Preserve provided numeric reading by storing as a string to avoid losing diastolic data.
+                self.value = str(self.value)
+                return self
+            raise ValueError("blood pressure requires systolic/diastolic values")
+
+        if self.value is None:
+            raise ValueError("value is required for this vital type")
+        if isinstance(self.value, str):
+            try:
+                self.value = float(self.value)
+            except ValueError as exc:
+                raise ValueError("value must be numeric for this vital type") from exc
+        return self
 
 
 class EcgStreamPayload(BaseModel):
@@ -83,6 +128,40 @@ class VitalBulkCreate(BaseModel):
         return value
 
 
+class VitalsQueryParams(BaseModel):
+    """Query params for listing vitals with pagination/filtering."""
+
+    type: Optional[VitalType] = None
+    limit: int = Field(default=100, ge=1, le=1000)
+    skip: int = Field(default=0, ge=0)
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def parse_epoch_timestamp(cls, value: object) -> object:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                # Common case: unencoded '+' in query params becomes a space; recover if possible.
+                if " " in value and "+" not in value:
+                    try:
+                        candidate = value.replace(" ", "+", 1)
+                        return datetime.fromisoformat(candidate)
+                    except ValueError:
+                        pass
+        return value
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "VitalsQueryParams":
+        if self.start and self.end and self.start > self.end:
+            raise ValueError("start must be before end")
+        return self
+
+
 class DashboardVitals(BaseModel):
     """Latest vitals shaped for the dashboard contract."""
 
@@ -103,3 +182,22 @@ class DashboardSummary(BaseModel):
     statusNote: str = "empty"
     lastUpdated: Optional[datetime] = None
     vitals: DashboardVitals = Field(default_factory=DashboardVitals)
+
+
+class DailyAveragePoint(BaseModel):
+    """Aggregated vital values grouped by UTC day."""
+
+    date: datetime
+    average: float
+    count: int
+
+
+class VitalSeriesResponse(BaseModel):
+    """
+    Time-series response that automatically switches between raw values and daily averages.
+    """
+
+    mode: Literal["raw", "daily_average"]
+    type: VitalType
+    unit: str | None = None
+    data: list[Vital | DailyAveragePoint]

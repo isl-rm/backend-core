@@ -1,20 +1,33 @@
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Iterable, List, Optional
 
 from fastapi import WebSocket
+from pydantic import TypeAdapter
 
+from app.core import cache
+from app.core.config import settings
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital, VitalType
 from app.modules.vitals.schemas import (
     DashboardSummary,
     DashboardVitals,
+    DailyAveragePoint,
     VitalBulkCreate,
     VitalCreate,
+    VitalSeriesResponse,
 )
 
 
 class VitalService:
     """Persistence and read layer for vitals, including dashboard shaping and streaming hooks."""
+
+    # Cache behavior overview:
+    # - We cache the final response objects for reads (short TTL).
+    # - Cache keys are "versioned" via Redis counters so any write invalidates future reads without
+    #   needing to enumerate/delete prior response keys.
+    # - Reads are coalesced (singleflight) to prevent stampedes when many identical requests arrive.
+    _vital_list_adapter = TypeAdapter(list[Vital])
+    _series_adapter = TypeAdapter(VitalSeriesResponse)
 
     async def create(self, vital_in: VitalCreate, user: User) -> Vital:
         """Persist a single vital after normalizing its timestamp to UTC seconds."""
@@ -27,6 +40,8 @@ class VitalService:
             timestamp=timestamp,
         )
         await vital.insert()
+        # Any new vital can affect list/series reads for this user/type.
+        await cache.bump_versions(str(user.id), vital_in.type.value)
         return vital
 
     async def process_vital_stream(
@@ -50,15 +65,39 @@ class VitalService:
         type: Optional[VitalType] = None,
         limit: int = 100,
         skip: int = 0,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> List[Vital]:
         """Return vitals for a user sorted newest-first with optional type filtering and pagination."""
-        query = Vital.find(Vital.user.id == user.id)
-        if type:
-            query = query.find(Vital.type == type)
-        vitals: List[Vital] = (
-            await query.sort("-timestamp").skip(skip).limit(limit).to_list()
+        start_utc = self._ensure_utc(start) if start else None
+        end_utc = self._ensure_utc(end) if end else None
+
+        async def loader() -> List[Vital]:
+            query = Vital.find(Vital.user.id == user.id)
+            if type:
+                query = query.find(Vital.type == type)
+            if start_utc:
+                query = query.find(Vital.timestamp >= start_utc)
+            if end_utc:
+                query = query.find(Vital.timestamp <= end_utc)
+            return await query.sort("-timestamp").skip(skip).limit(limit).to_list()
+
+        # The list cache key includes (filters, pagination, and current invalidation versions).
+        cache_key = await self._list_cache_key(
+            user_id=str(user.id),
+            type=type,
+            start=start_utc,
+            end=end_utc,
+            limit=limit,
+            skip=skip,
         )
-        return vitals
+
+        return await cache.cached_json(
+            key=cache_key,
+            loader=loader,
+            adapter=self._vital_list_adapter,
+            ttl_seconds=settings.VITALS_CACHE_TTL_SECONDS,
+        )
 
     async def get_latest(
         self, user: User, type: Optional[VitalType] = None
@@ -127,6 +166,8 @@ class VitalService:
             )
 
         await Vital.insert_many(vitals)
+        # Bulk writes can touch multiple types; bump versions for each unique type.
+        await self._invalidate_user_cache(user_id=str(user.id), vitals=vitals)
         vitals.sort(key=lambda v: v.timestamp, reverse=True)
         return vitals
 
@@ -166,6 +207,182 @@ class VitalService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    async def get_series(
+        self,
+        user: User,
+        type: VitalType,
+        start: datetime,
+        end: datetime,
+        limit: int = 100,
+        skip: int = 0,
+    ) -> VitalSeriesResponse:
+        """
+        Return raw vitals when the requested range is <=3 days; otherwise return daily averages.
+        """
+        start_utc = self._ensure_utc(start)
+        end_utc = self._ensure_utc(end)
+        if start_utc > end_utc:
+            raise ValueError("start must be before end")
+
+        use_raw = (end_utc - start_utc) <= timedelta(days=3)
+        mode = "raw" if use_raw else "daily_average"
+
+        async def loader() -> VitalSeriesResponse:
+            if use_raw:
+                return await self._get_series_raw(
+                    user=user,
+                    type=type,
+                    start=start_utc,
+                    end=end_utc,
+                    limit=limit,
+                    skip=skip,
+                )
+            return await self._get_series_daily_average(
+                user=user,
+                type=type,
+                start=start_utc,
+                end=end_utc,
+                limit=limit,
+                skip=skip,
+            )
+
+        # Series caching also includes the derived "mode" to avoid mixing raw vs daily_average shapes.
+        cache_key = await self._series_cache_key(
+            user_id=str(user.id),
+            type=type,
+            start=start_utc,
+            end=end_utc,
+            mode=mode,
+            limit=limit,
+            skip=skip,
+        )
+
+        return await cache.cached_json(
+            key=cache_key,
+            loader=loader,
+            adapter=self._series_adapter,
+            ttl_seconds=settings.VITALS_CACHE_TTL_SECONDS,
+        )
+
+    def _aggregate_daily_average(self, vitals: Iterable[Vital]) -> list[DailyAveragePoint]:
+        """Group vitals by UTC day and compute averages."""
+        buckets: dict[tuple[int, int, int], dict[str, float | int]] = {}
+
+        for vital in vitals:
+            timestamp = self._ensure_utc(vital.timestamp)
+            day_key = (timestamp.year, timestamp.month, timestamp.day)
+            value = self._as_float(vital.value)
+
+            bucket = buckets.setdefault(day_key, {"sum": 0.0, "count": 0})
+            bucket["sum"] = float(bucket["sum"]) + value
+            bucket["count"] = int(bucket["count"]) + 1
+
+        points: list[DailyAveragePoint] = []
+        for (year, month, day), bucket in sorted(buckets.items()):
+            avg = float(bucket["sum"]) / int(bucket["count"])
+            points.append(
+                DailyAveragePoint(
+                    date=datetime(year, month, day, tzinfo=timezone.utc),
+                    average=avg,
+                    count=int(bucket["count"]),
+                )
+            )
+        return points
+
+    def _as_float(self, value: object) -> float:
+        """Coerce vital values to float for aggregation or raise for non-numeric data."""
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(str(value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Cannot average non-numeric vital values for this type") from exc
+
+    async def _invalidate_user_cache(
+        self, user_id: str, vitals: Iterable[Vital]
+    ) -> None:
+        """Bump cache versions for the affected user and types after writes."""
+        unique_types = {vital.type.value for vital in vitals}
+        for type_label in unique_types:
+            await cache.bump_versions(user_id, type_label)
+
+    async def _get_series_raw(
+        self,
+        user: User,
+        type: VitalType,
+        start: datetime,
+        end: datetime,
+        limit: int,
+        skip: int,
+    ) -> VitalSeriesResponse:
+        base_query = self._series_query(user, type, start, end)
+        vitals = await base_query.sort("-timestamp").skip(skip).limit(limit).to_list()
+        unit = vitals[0].unit if vitals else None
+        return VitalSeriesResponse(mode="raw", type=type, unit=unit, data=vitals)
+
+    async def _get_series_daily_average(
+        self,
+        user: User,
+        type: VitalType,
+        start: datetime,
+        end: datetime,
+        limit: int,
+        skip: int,
+    ) -> VitalSeriesResponse:
+        base_query = self._series_query(user, type, start, end)
+        vitals = await base_query.sort("-timestamp").to_list()
+        unit = vitals[0].unit if vitals else None
+        aggregates = self._aggregate_daily_average(vitals)
+        aggregates = aggregates[skip : skip + limit] if limit is not None else aggregates[skip:]
+        return VitalSeriesResponse(mode="daily_average", type=type, unit=unit, data=aggregates)
+
+    def _series_query(
+        self, user: User, type: VitalType, start: datetime, end: datetime
+    ):
+        return (
+            Vital.find(Vital.user.id == user.id)
+            .find(Vital.type == type)
+            .find(Vital.timestamp >= start)
+            .find(Vital.timestamp <= end)
+        )
+
+    async def _list_cache_key(
+        self,
+        user_id: str,
+        type: VitalType | None,
+        start: datetime | None,
+        end: datetime | None,
+        limit: int,
+        skip: int,
+    ) -> str:
+        user_version, type_version = await cache.get_versions(
+            user_id, type.value if type else None
+        )
+        type_label = type.value if type else "all"
+        start_label = start.isoformat() if start else "none"
+        end_label = end.isoformat() if end else "none"
+        return (
+            f"vitals:list:{user_id}:{type_label}:{start_label}:{end_label}:"
+            f"{limit}:{skip}:uv{user_version}:tv{type_version}"
+        )
+
+    async def _series_cache_key(
+        self,
+        user_id: str,
+        type: VitalType,
+        start: datetime,
+        end: datetime,
+        mode: str,
+        limit: int,
+        skip: int,
+    ) -> str:
+        user_version, type_version = await cache.get_versions(user_id, type.value)
+        return (
+            f"vitals:series:{user_id}:{type.value}:{mode}:"
+            f"{start.isoformat()}:{end.isoformat()}:{limit}:{skip}:"
+            f"uv{user_version}:tv{type_version}"
+        )
 
 
 class VitalConnectionManager:

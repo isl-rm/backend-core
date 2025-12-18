@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from beanie import Document, Link
+from pymongo import IndexModel
 from pydantic import Field
 
 from app.modules.users.models import User
@@ -26,10 +27,19 @@ class Vital(Document):
     """Persisted vital sign measurement associated with a user."""
 
     type: VitalType
-    value: float
+    value: float | str
     unit: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     user: Link[User]
 
     class Settings:
         name = "vitals"
+        indexes = [
+            IndexModel(
+                [
+                    ("user", 1),
+                    ("type", 1),
+                    ("timestamp", -1),
+                ]
+            )
+        ]

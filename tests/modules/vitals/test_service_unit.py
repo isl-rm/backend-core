@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.modules.vitals.models import Vital, VitalType
-from app.modules.vitals.schemas import DashboardVitals, VitalBulkCreate, VitalCreate
+from app.modules.vitals.schemas import (
+    BloodPressureReading,
+    DashboardVitals,
+    VitalBulkCreate,
+    VitalCreate,
+    VitalSeriesResponse,
+)
 from app.modules.vitals.service import VitalConnectionManager, VitalService
 
 
@@ -70,6 +76,30 @@ async def test_get_multi_filters_by_type(create_user_func) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_multi_filters_by_date_range(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    base = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    before = base - timedelta(days=1)
+    inside = base + timedelta(hours=1)
+    after = base + timedelta(days=1)
+
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=before), user)
+    await service.create(VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=inside), user)
+    await service.create(VitalCreate(type=VitalType.BPM, value=80, unit="bpm", timestamp=after), user)
+
+    vitals = await service.get_multi(
+        user=user,
+        type=VitalType.BPM,
+        start=base,
+        end=base + timedelta(hours=2),
+    )
+
+    assert [v.value for v in vitals] == [70]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_summary_retains_latest_timestamp_when_older_values_present(create_user_func) -> None:
     service = VitalService()
     user = await create_user_func()
@@ -83,7 +113,12 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
         user,
     )
     await service.create(
-        VitalCreate(type=VitalType.BLOOD_PRESSURE, value=110, unit="mmHg", timestamp=older),
+        VitalCreate(
+            type=VitalType.BLOOD_PRESSURE,
+            blood_pressure=BloodPressureReading(systolic=110, diastolic=70),
+            unit="mmHg",
+            timestamp=older,
+        ),
         user,
     )
 
@@ -91,7 +126,7 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
 
     assert summary.lastUpdated == newest
     assert summary.vitals.ecg == "1.23"
-    assert summary.vitals.bloodPressure == "110.0 mmHg"
+    assert summary.vitals.bloodPressure == "110/70 mmHg"
 
 
 @pytest.mark.asyncio
@@ -181,6 +216,48 @@ async def test_first_available_respects_priority_over_recency(create_user_func) 
     assert fallback.type == VitalType.BPM
 
 
+@pytest.mark.asyncio
+async def test_create_bumps_cache_versions(
+    monkeypatch: pytest.MonkeyPatch, create_user_func
+) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    bump_mock = AsyncMock()
+    monkeypatch.setattr("app.modules.vitals.service.cache.bump_versions", bump_mock)
+
+    vital_in = VitalCreate(type=VitalType.BPM, value=70, unit="bpm")
+    await service.create(vital_in, user)
+
+    bump_mock.assert_awaited_once_with(str(user.id), "bpm")
+
+
+@pytest.mark.asyncio
+async def test_create_bulk_bumps_cache_versions_for_each_type(
+    monkeypatch: pytest.MonkeyPatch, create_user_func
+) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    bump_mock = AsyncMock()
+    monkeypatch.setattr("app.modules.vitals.service.cache.bump_versions", bump_mock)
+
+    bulk = VitalBulkCreate(
+        vitals=[
+            VitalCreate(type=VitalType.BPM, value=70, unit="bpm"),
+            VitalCreate(type=VitalType.SPO2, value=98, unit="%"),
+            VitalCreate(type=VitalType.BPM, value=65, unit="bpm"),
+        ]
+    )
+
+    await service.create_bulk(bulk, user)
+
+    # Called once per unique type in the batch.
+    assert bump_mock.await_count == 2
+    bump_mock.assert_any_await(str(user.id), "bpm")
+    bump_mock.assert_any_await(str(user.id), "spo2")
+
+
 def test_normalize_and_ensure_utc_helpers() -> None:
     service = VitalService()
 
@@ -214,3 +291,74 @@ async def test_dashboard_summary_empty_when_no_vitals(create_user_func) -> None:
     assert summary.statusNote == "No vitals found"
     assert summary.lastUpdated is None
     assert summary.vitals == DashboardVitals()
+
+
+@pytest.mark.asyncio
+async def test_get_series_switches_between_raw_and_daily_average(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    await service.create(VitalCreate(type=VitalType.BPM, value=60, unit="bpm", timestamp=start), user)
+    await service.create(
+        VitalCreate(type=VitalType.BPM, value=70, unit="bpm", timestamp=start + timedelta(days=1)),
+        user,
+    )
+
+    raw = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=2),
+    )
+    assert isinstance(raw, VitalSeriesResponse)
+    assert raw.mode == "raw"
+    assert len(raw.data) == 2
+    paged_raw = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=2),
+        limit=1,
+        skip=1,
+    )
+    assert paged_raw.mode == "raw"
+    assert len(paged_raw.data) == 1
+    assert paged_raw.data[0].value == 60
+
+    averaged = await service.get_series(
+        user=user,
+        type=VitalType.BPM,
+        start=start,
+        end=start + timedelta(days=4),
+        limit=1,
+        skip=1,
+    )
+    assert averaged.mode == "daily_average"
+    assert len(averaged.data) == 1  # paginated slice of day buckets
+    assert averaged.data[0].average == pytest.approx(70.0)
+
+
+@pytest.mark.asyncio
+async def test_get_series_rejects_non_numeric_values(create_user_func) -> None:
+    service = VitalService()
+    user = await create_user_func()
+    ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    await service.create(
+        VitalCreate(
+            type=VitalType.BLOOD_PRESSURE,
+            blood_pressure=BloodPressureReading(systolic=120, diastolic=80),
+            unit="mmHg",
+            timestamp=ts,
+        ),
+        user,
+    )
+
+    with pytest.raises(ValueError):
+        await service.get_series(
+            user=user,
+            type=VitalType.BLOOD_PRESSURE,
+            start=ts,
+            end=ts + timedelta(days=7),
+        )

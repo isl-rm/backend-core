@@ -4,9 +4,15 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.main import app
 from app.modules.vitals import router
 from app.modules.vitals.models import VitalType
-from app.modules.vitals.schemas import DashboardSummary, VitalBulkCreate, VitalCreate
+from app.modules.vitals.schemas import (
+    DashboardSummary,
+    VitalBulkCreate,
+    VitalCreate,
+    VitalsQueryParams,
+)
 from app.modules.users.models import User
 
 
@@ -79,8 +85,23 @@ async def test_read_vitals_forwards_filters() -> None:
         def __init__(self) -> None:
             self.seen: dict[str, object] | None = None
 
-        async def get_multi(self, user: User, type: VitalType | None, limit: int, skip: int):
-            self.seen = {"user": user, "type": type, "limit": limit, "skip": skip}
+        async def get_multi(
+            self,
+            user: User,
+            type: VitalType | None,
+            limit: int,
+            skip: int,
+            start: datetime | None = None,
+            end: datetime | None = None,
+        ):
+            self.seen = {
+                "user": user,
+                "type": type,
+                "limit": limit,
+                "skip": skip,
+                "start": start,
+                "end": end,
+            }
             return [
                 _vital_from_create(
                     VitalCreate(type=VitalType.BPM, value=60, unit="bpm"), user
@@ -89,11 +110,21 @@ async def test_read_vitals_forwards_filters() -> None:
 
     service = FakeService()
     # Exercise: ensure filters flow to the service call
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    params = VitalsQueryParams(type=VitalType.BPM, limit=5, skip=1, start=start, end=end)
     result = await router.read_vitals(
-        type=VitalType.BPM, limit=5, skip=1, current_user=user, service=service
+        params=params, current_user=user, service=service
     )
 
-    assert service.seen == {"user": user, "type": VitalType.BPM, "limit": 5, "skip": 1}
+    assert service.seen == {
+        "user": user,
+        "type": VitalType.BPM,
+        "limit": 5,
+        "skip": 1,
+        "start": start,
+        "end": end,
+    }
     assert result[0].value == 60
 
 
@@ -123,3 +154,10 @@ async def test_read_dashboard_summary_returns_service_value() -> None:
 
     result = await router.read_dashboard_summary(current_user=user, service=FakeService())
     assert result is expected
+
+
+def test_openapi_exposes_date_range_filters() -> None:
+    schema = app.openapi()
+    path = schema["paths"]["/api/v1/vitals/"]["get"]
+    param_names = {param["name"] for param in path["parameters"]}
+    assert {"start", "end", "limit", "skip"}.issubset(param_names)
