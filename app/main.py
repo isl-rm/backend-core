@@ -4,6 +4,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.cache import close_cache, init_cache
 from app.core.config import settings
 from app.core.db import init_db
 from app.core.logging import setup_logging
@@ -20,12 +21,16 @@ setup_logging()
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     mongo_client = await init_db()
+    # Redis cache is optional; init_cache() returns None when disabled/unavailable.
+    cache_client = await init_cache()
     app.state.mongo_client = mongo_client
+    app.state.cache_client = cache_client
 
     yield
 
     # Shutdown
     mongo_client.close()
+    await close_cache()
 
 
 app = FastAPI(

@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mongo:
     image: mongo:7.0
@@ -17,6 +15,15 @@ services:
       # Optional: put .js or .sh init scripts in ./mongo-init
       # - ./mongo-init:/docker-entrypoint-initdb.d:ro
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    # Cache-only Redis (no persistence) to speed up short-TTL API reads.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+
   app:
     build: .
     container_name: backend-core
@@ -24,8 +31,11 @@ services:
       - "8000:8000"
     environment:
       - MONGODB_URL=mongodb://root:example@mongo:27017
+      # Use the service DNS name (not localhost) from inside the app container.
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - mongo
+      - redis
     volumes:
       - ./.env:/app/.env
       - ./app:/app/app

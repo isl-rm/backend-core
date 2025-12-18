@@ -216,6 +216,48 @@ async def test_first_available_respects_priority_over_recency(create_user_func) 
     assert fallback.type == VitalType.BPM
 
 
+@pytest.mark.asyncio
+async def test_create_bumps_cache_versions(
+    monkeypatch: pytest.MonkeyPatch, create_user_func
+) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    bump_mock = AsyncMock()
+    monkeypatch.setattr("app.modules.vitals.service.cache.bump_versions", bump_mock)
+
+    vital_in = VitalCreate(type=VitalType.BPM, value=70, unit="bpm")
+    await service.create(vital_in, user)
+
+    bump_mock.assert_awaited_once_with(str(user.id), "bpm")
+
+
+@pytest.mark.asyncio
+async def test_create_bulk_bumps_cache_versions_for_each_type(
+    monkeypatch: pytest.MonkeyPatch, create_user_func
+) -> None:
+    service = VitalService()
+    user = await create_user_func()
+
+    bump_mock = AsyncMock()
+    monkeypatch.setattr("app.modules.vitals.service.cache.bump_versions", bump_mock)
+
+    bulk = VitalBulkCreate(
+        vitals=[
+            VitalCreate(type=VitalType.BPM, value=70, unit="bpm"),
+            VitalCreate(type=VitalType.SPO2, value=98, unit="%"),
+            VitalCreate(type=VitalType.BPM, value=65, unit="bpm"),
+        ]
+    )
+
+    await service.create_bulk(bulk, user)
+
+    # Called once per unique type in the batch.
+    assert bump_mock.await_count == 2
+    bump_mock.assert_any_await(str(user.id), "bpm")
+    bump_mock.assert_any_await(str(user.id), "spo2")
+
+
 def test_normalize_and_ensure_utc_helpers() -> None:
     service = VitalService()
 
