@@ -137,10 +137,10 @@ class DailyCheckinService:
                     id=str(entry.id),
                     date=entry.date,
                     mood=entry.mood,
-                    cravingScore=entry.craving_score,
-                    substanceStatus=entry.substance_use.status,
-                    kickCount=entry.kick_count,
-                    hydrationCount=entry.hydration.count if entry.hydration else 0,
+                    craving_score=entry.craving_score,
+                    substance_status=entry.substance_use.status,
+                    kick_count=entry.kick_count,
+                    hydration_count=entry.hydration.count if entry.hydration else 0,
                     note=entry.note,
                     symptoms=entry.symptoms,
                 )
@@ -155,21 +155,21 @@ class DailyCheckinService:
         return DailyCheckinResponse(
             id=str(checkin.id),
             date=checkin.date,
-            pregnancyWeek=checkin.pregnancy_week,
+            pregnancy_week=checkin.pregnancy_week,
             affirmation=checkin.affirmation,
-            dailyPlan=checkin.daily_plan,
-            kickCount=checkin.kick_count,
+            daily_plan=checkin.daily_plan,
+            kick_count=checkin.kick_count,
             hydration=checkin.hydration,
-            cravingScore=checkin.craving_score,
+            craving_score=checkin.craving_score,
             symptoms=checkin.symptoms,
             mood=checkin.mood,
             note=checkin.note,
-            substanceUse=checkin.substance_use,
-            createdAt=checkin.created_at,
-            updatedAt=checkin.updated_at,
-            soberStreakDays=streak,
-            planCompleted=plan_completed,
-            planTotal=plan_total,
+            substance_use=checkin.substance_use,
+            created_at=checkin.created_at,
+            updated_at=checkin.updated_at,
+            sober_streak_days=streak,
+            plan_completed=plan_completed,
+            plan_total=plan_total,
         )
 
     def _apply_update(self, checkin: DailyCheckin, payload: DailyCheckinUpdate) -> None:
@@ -192,7 +192,7 @@ class DailyCheckinService:
         if payload.note is not None:
             checkin.note = payload.note
         if payload.substance_use is not None:
-            checkin.substance_use = SubstanceUse(**payload.substance_use.model_dump(by_alias=True))
+            checkin.substance_use = SubstanceUse(**payload.substance_use.model_dump())
         if payload.date is not None:
             checkin.date = payload.date
 

@@ -25,8 +25,8 @@ async def test_login_access_token_sets_refresh_cookie(
     )
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert "accessToken" in data
+    assert data["tokenType"] == "bearer"
     refresh_cookie = response.cookies.get("refresh_token")
     assert refresh_cookie
 
@@ -44,8 +44,8 @@ async def test_login_accepts_username_field_for_swagger(
     )
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert "accessToken" in data
+    assert data["tokenType"] == "bearer"
 
 
 @pytest.mark.asyncio
@@ -75,8 +75,8 @@ async def test_refresh_token_uses_cookie_flow(
     refresh_response = await client.post("/api/v1/refresh-token")
     assert refresh_response.status_code == 200
     data = refresh_response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert "accessToken" in data
+    assert data["tokenType"] == "bearer"
     # refresh token is re-set on the response to keep the session alive
     assert refresh_response.cookies.get("refresh_token") == refresh_cookie
 
@@ -88,19 +88,19 @@ async def test_refresh_token_via_body(client: AsyncClient, create_user_func):
     refresh_token = auth_service.create_refresh_token(str(user.id))
 
     response = await client.post(
-        "/api/v1/refresh-token", json={"refresh_token": refresh_token}
+        "/api/v1/refresh-token", json={"refreshToken": refresh_token}
     )
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert "accessToken" in data
+    assert data["tokenType"] == "bearer"
     assert response.cookies.get("refresh_token") == refresh_token
 
 
 @pytest.mark.asyncio
 async def test_refresh_token_invalid(client: AsyncClient):
     response = await client.post(
-        "/api/v1/refresh-token", json={"refresh_token": "invalid_jwt"}
+        "/api/v1/refresh-token", json={"refreshToken": "invalid_jwt"}
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Invalid refresh token"
@@ -119,7 +119,7 @@ async def test_signup_success(client: AsyncClient):
     assert data["email"] == payload["email"]
     assert data["roles"] == payload["roles"]
     assert data["status"] == "active"
-    assert data["email_verified"] is False
+    assert data["emailVerified"] is False
     assert "id" in data
     assert "hashed_password" not in data
 
@@ -230,7 +230,7 @@ async def test_login_refresh_flow_runs_with_cookie(client: AsyncClient, create_u
 
     refresh_response = await client.post("/api/v1/refresh-token")
     assert refresh_response.status_code == 200
-    assert refresh_response.json()["token_type"] == "bearer"
+    assert refresh_response.json()["tokenType"] == "bearer"
     assert refresh_response.cookies.get("refresh_token")
 
 
@@ -279,7 +279,7 @@ async def test_login_access_token_with_override_sets_tokens(client: AsyncClient)
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json()["access_token"] == "access-user123"
+    assert response.json()["accessToken"] == "access-user123"
     assert response.cookies.get("refresh_token") == "refresh-user123"
     assert ("access", "user123") in fake_auth.created_tokens
     assert ("refresh", "user123") in fake_auth.created_tokens
@@ -304,14 +304,14 @@ async def test_refresh_token_prefers_body_over_cookie(client: AsyncClient):
         client.cookies.set("refresh_token", "cookietoken", domain="test", path="/")
         response = await client.post(
             "/api/v1/refresh-token",
-            json={"refresh_token": "bodytoken"},
+            json={"refreshToken": "bodytoken"},
         )
     finally:
         app.dependency_overrides.clear()
         client.cookies.clear()
 
     assert response.status_code == 200
-    assert response.json()["access_token"] == "new-access-user456"
+    assert response.json()["accessToken"] == "new-access-user456"
     assert response.cookies.get("refresh_token") == "bodytoken"
     assert fake_auth.last_token == "bodytoken"
 

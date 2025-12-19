@@ -124,9 +124,9 @@ async def test_dashboard_summary_retains_latest_timestamp_when_older_values_pres
 
     summary = await service.get_dashboard_summary(user)
 
-    assert summary.lastUpdated == newest
+    assert summary.last_updated == newest
     assert summary.vitals.ecg == "1.23"
-    assert summary.vitals.bloodPressure == "110/70 mmHg"
+    assert summary.vitals.blood_pressure == "110/70 mmHg"
 
 
 @pytest.mark.asyncio
@@ -288,8 +288,8 @@ async def test_dashboard_summary_empty_when_no_vitals(create_user_func) -> None:
     summary = await service.get_dashboard_summary(user)
 
     assert summary.status == "empty"
-    assert summary.statusNote == "No vitals found"
-    assert summary.lastUpdated is None
+    assert summary.status_note == "No vitals found"
+    assert summary.last_updated is None
     assert summary.vitals == DashboardVitals()
 
 

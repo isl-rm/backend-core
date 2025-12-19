@@ -146,7 +146,7 @@ async def test_read_latest_vital_raises_when_missing() -> None:
 @pytest.mark.asyncio
 async def test_read_dashboard_summary_returns_service_value() -> None:
     user = _fake_user()
-    expected = DashboardSummary(status="ok", statusNote="ready")
+    expected = DashboardSummary(status="ok", status_note="ready")
 
     class FakeService:
         async def get_dashboard_summary(self, user: User):
@@ -158,6 +158,6 @@ async def test_read_dashboard_summary_returns_service_value() -> None:
 
 def test_openapi_exposes_date_range_filters() -> None:
     schema = app.openapi()
-    path = schema["paths"]["/api/v1/vitals/"]["get"]
+    path = schema["paths"]["/api/v1/vitals/history"]["get"]
     param_names = {param["name"] for param in path["parameters"]}
     assert {"start", "end", "limit", "skip"}.issubset(param_names)

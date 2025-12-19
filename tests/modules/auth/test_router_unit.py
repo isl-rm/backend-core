@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException, Response
 
 from app.modules.auth.router import create_user, login_access_token, logout, refresh_token
-from app.modules.auth.schemas import EmailPasswordForm
+from app.modules.auth.schemas import EmailPasswordForm, RefreshTokenBody
 from app.modules.users.schemas import UserCreate
 from app.shared.constants import Role, UserStatus
 
@@ -52,7 +52,7 @@ async def test_refresh_token_body_and_cookie_paths():
     auth = FakeAuthService()
     result = await refresh_token(
         response,
-        refresh_token_body="body-token",
+        refresh_token_body=RefreshTokenBody(refresh_token="body-token"),
         refresh_token_cookie="cookie-token",
         auth_service=auth,
     )
@@ -98,7 +98,7 @@ async def test_refresh_token_missing_and_invalid():
     with pytest.raises(HTTPException) as invalid_exc:
         await refresh_token(
             Response(),
-            refresh_token_body="badtoken",
+            refresh_token_body=RefreshTokenBody(refresh_token="badtoken"),
             refresh_token_cookie=None,
             auth_service=FakeAuthService(),
         )

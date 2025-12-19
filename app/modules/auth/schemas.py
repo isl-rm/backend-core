@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import Form
 from pydantic import BaseModel
+from app.shared.schemas import CamelModel
 
 
 class AccessTokenResponse(BaseModel):
@@ -9,8 +10,12 @@ class AccessTokenResponse(BaseModel):
     token_type: str
 
 
-class TokenData(BaseModel):
+class TokenData(CamelModel):
     email: Optional[str] = None
+
+
+class RefreshTokenBody(CamelModel):
+    refresh_token: str | None = None
 
 
 # Dependency form for login that accepts either `email` or the OAuth-standard
