@@ -64,7 +64,7 @@ async def create_vitals_bulk(
     return await service.create_bulk(bulk_in, current_user)
 
 
-@router.get("/", response_model=List[Vital], summary="Get vital signs history")
+@router.get("/history", response_model=List[Vital], summary="Get vital signs history")
 async def read_vitals(
     params: VitalsQueryParams = Depends(get_vitals_query_params),
     current_user: User = Depends(deps.get_current_user),
@@ -120,7 +120,7 @@ async def read_vital_series(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post(
+@router.get(
     "/latest",
     response_model=Vital,
     summary="Get most recent vital sign",

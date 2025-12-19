@@ -146,7 +146,7 @@ async def test_bulk_create_and_latest_endpoint(
     assert [item["value"] for item in data] == [101, 95]
 
     # Step 2: The latest endpoint should surface the newest bulk value
-    latest_resp = await client.post("/api/v1/vitals/latest?type=bpm", headers=headers)
+    latest_resp = await client.get("/api/v1/vitals/latest?type=bpm", headers=headers)
     assert latest_resp.status_code == 200
     assert latest_resp.json()["value"] == 101
 
@@ -158,7 +158,7 @@ async def test_latest_vital_returns_404_when_empty(
     user = await create_user_func()
     headers = _auth_headers(str(user.id))
 
-    resp = await client.post("/api/v1/vitals/latest", headers=headers)
+    resp = await client.get("/api/v1/vitals/latest", headers=headers)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "No vitals found"
 
