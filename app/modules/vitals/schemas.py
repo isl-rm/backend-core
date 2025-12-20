@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 from typing import Literal, Optional
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import logging
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from app.modules.vitals.models import Vital, VitalType
+from app.shared.schemas import CamelModel
 
 
-class BloodPressureReading(BaseModel):
+class BloodPressureReading(CamelModel):
     """Structured representation of a blood pressure reading."""
 
     systolic: int = Field(gt=0)
@@ -16,7 +17,7 @@ class BloodPressureReading(BaseModel):
         return f"{self.systolic}/{self.diastolic}"
 
 
-class VitalCreate(BaseModel):
+class VitalCreate(CamelModel):
     """Inbound payload for a single vital measurement."""
 
     type: VitalType
@@ -26,8 +27,6 @@ class VitalCreate(BaseModel):
     blood_pressure: BloodPressureReading | None = Field(
         default=None, alias="bloodPressure"
     )
-
-    model_config = ConfigDict(populate_by_name=True)
 
     # Allow integer/float epoch seconds as timestamp input
     @field_validator("timestamp", mode="before")
@@ -67,7 +66,7 @@ class VitalCreate(BaseModel):
         return self
 
 
-class EcgStreamPayload(BaseModel):
+class EcgStreamPayload(CamelModel):
     """
     Streaming payload for ECG data delivered over WebSocket.
 
@@ -80,8 +79,6 @@ class EcgStreamPayload(BaseModel):
     timestamp: Optional[datetime] = None
     value: float | None = None
     unit: str | None = None
-
-    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -115,7 +112,7 @@ class EcgStreamPayload(BaseModel):
         return self
 
 
-class VitalBulkCreate(BaseModel):
+class VitalBulkCreate(CamelModel):
     """Inbound payload for batching multiple vital measurements."""
 
     vitals: list[VitalCreate] = Field(default_factory=list)
@@ -128,18 +125,32 @@ class VitalBulkCreate(BaseModel):
         return value
 
 
-class VitalsQueryParams(BaseModel):
+class VitalsQueryParams(CamelModel):
     """Query params for listing vitals with pagination/filtering."""
 
-    type: Optional[VitalType] = None
-    limit: int = Field(default=100, ge=1, le=1000)
-    skip: int = Field(default=0, ge=0)
-    start: Optional[datetime] = None
-    end: Optional[datetime] = None
+    type: Optional[VitalType] = Field(default=None, description="Filter by vital type")
+    limit: int = Field(
+        default=100, ge=1, le=1000, description="Maximum items to return"
+    )
+    skip: int = Field(default=0, ge=0, description="Items to skip for pagination")
+    start: Optional[datetime] = Field(
+        default=None,
+        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
+        validation_alias=AliasChoices("startDate", "start"),
+        alias="start",
+    )
+    end: Optional[datetime] = Field(
+        default=None,
+        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
+        validation_alias=AliasChoices("endDate", "end"),
+        alias="end",
+    )
+
 
     @field_validator("start", "end", mode="before")
     @classmethod
     def parse_epoch_timestamp(cls, value: object) -> object:
+        logging.getLogger("vitals query params validator").info("before validator params: %s", value)
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value, tz=timezone.utc)
         if isinstance(value, str):
@@ -162,29 +173,76 @@ class VitalsQueryParams(BaseModel):
         return self
 
 
-class DashboardVitals(BaseModel):
+class VitalsSeriesQuery(CamelModel):
+    """Query params for vitals time series."""
+
+    start: Optional[datetime] = Field(
+        default=None,
+        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
+        validation_alias=AliasChoices("startDate", "start"),
+        alias="start",
+    )
+    end: Optional[datetime] = Field(
+        default=None,
+        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
+        validation_alias=AliasChoices("endDate", "end"),
+        alias="end",
+    )
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum items to return (raw points or daily buckets)",
+    )
+    skip: int = Field(default=0, ge=0, description="Items to skip for pagination")
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def parse_epoch_timestamp(cls, value: object) -> object:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                if " " in value and "+" not in value:
+                    try:
+                        candidate = value.replace(" ", "+", 1)
+                        return datetime.fromisoformat(candidate)
+                    except ValueError:
+                        pass
+        return value
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "VitalsSeriesQuery":
+        if self.start and self.end and self.start > self.end:
+            raise ValueError("start must be before end")
+        return self
+
+
+class DashboardVitals(CamelModel):
     """Latest vitals shaped for the dashboard contract."""
 
     ecg: str = "0"
-    bloodPressure: str = "0"
-    heartRate: float = 0.0
+    blood_pressure: str = "0"
+    heart_rate: float = 0.0
     spo2: float = 0.0
-    temperatureC: float = 0.0
-    respRate: float = 0.0
-    bloodSugar: float = 0.0
-    weightKg: float = 0.0
+    temperature_c: float = 0.0
+    resp_rate: float = 0.0
+    blood_sugar: float = 0.0
+    weight_kg: float = 0.0
 
 
-class DashboardSummary(BaseModel):
+class DashboardSummary(CamelModel):
     """Aggregate response for the vitals dashboard."""
 
     status: str = "empty"
-    statusNote: str = "empty"
-    lastUpdated: Optional[datetime] = None
+    status_note: str = "empty"
+    last_updated: Optional[datetime] = None
     vitals: DashboardVitals = Field(default_factory=DashboardVitals)
 
 
-class DailyAveragePoint(BaseModel):
+class DailyAveragePoint(CamelModel):
     """Aggregated vital values grouped by UTC day."""
 
     date: datetime
@@ -192,7 +250,7 @@ class DailyAveragePoint(BaseModel):
     count: int
 
 
-class VitalSeriesResponse(BaseModel):
+class VitalSeriesResponse(CamelModel):
     """
     Time-series response that automatically switches between raw values and daily averages.
     """

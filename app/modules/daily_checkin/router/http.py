@@ -1,6 +1,4 @@
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.modules.daily_checkin.models import SubstanceUse
 from app.modules.daily_checkin.schemas import (
@@ -92,22 +90,14 @@ async def update_substance_use(
     current_user: User = Depends(deps.get_current_user),
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> DailyCheckinResponse:
-    substance_use = SubstanceUse(**payload.model_dump(by_alias=True))
+    substance_use = SubstanceUse(**payload.model_dump())
     return await service.set_substance_use(current_user, substance_use)
 
 
 @router.get("/history", response_model=HistoryResponse, summary="List daily check-in history")
 async def list_history(
-    start: datetime | None = Query(
-        None, description="Start date (ISO 8601 or epoch seconds)", example="2025-11-18T00:00:00Z"
-    ),
-    end: datetime | None = Query(
-        None, description="End date (ISO 8601 or epoch seconds)", example="2025-12-18T00:00:00Z"
-    ),
-    limit: int = Query(30, ge=1, le=200),
-    skip: int = Query(0, ge=0),
+    params: HistoryQuery = Depends(),
     current_user: User = Depends(deps.get_current_user),
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> HistoryResponse:
-    params = HistoryQuery(start=start, end=end, limit=limit, skip=skip)
     return await service.get_history(current_user, params)

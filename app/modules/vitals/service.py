@@ -113,13 +113,13 @@ class VitalService:
         # Map dashboard fields to acceptable vital types in priority order
         type_groups: list[tuple[str, list[VitalType]]] = [
             ("ecg", [VitalType.ECG]),
-            ("bloodPressure", [VitalType.BLOOD_PRESSURE]),
-            ("heartRate", [VitalType.HEART_RATE, VitalType.BPM]),
+            ("blood_pressure", [VitalType.BLOOD_PRESSURE]),
+            ("heart_rate", [VitalType.HEART_RATE, VitalType.BPM]),
             ("spo2", [VitalType.SPO2]),
-            ("temperatureC", [VitalType.TEMPERATURE]),
-            ("respRate", [VitalType.RESP_RATE]),
-            ("bloodSugar", [VitalType.BLOOD_SUGAR]),
-            ("weightKg", [VitalType.WEIGHT_KG]),
+            ("temperature_c", [VitalType.TEMPERATURE]),
+            ("resp_rate", [VitalType.RESP_RATE]),
+            ("blood_sugar", [VitalType.BLOOD_SUGAR]),
+            ("weight_kg", [VitalType.WEIGHT_KG]),
         ]
 
         vitals_model = DashboardVitals()
@@ -143,8 +143,8 @@ class VitalService:
 
         return DashboardSummary(
             status=status,
-            statusNote=status_note,
-            lastUpdated=last_updated,
+            status_note=status_note,
+            last_updated=last_updated,
             vitals=vitals_model,
         )
 
@@ -183,7 +183,7 @@ class VitalService:
 
     def _format_dashboard_value(self, field_name: str, vital: Vital) -> str | float:
         """Normalize dashboard values so pressure stays string-based while others stay numeric."""
-        if field_name == "bloodPressure":
+        if field_name == "blood_pressure":
             suffix = f" {vital.unit}" if vital.unit else ""
             return f"{vital.value}{suffix}"
         if field_name == "ecg":

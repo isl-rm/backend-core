@@ -18,7 +18,11 @@ from app.modules.auth.constants import (
     REFRESH_TOKEN_SECURE,
     REFRESH_TOKEN_SAMESITE,
 )
-from app.modules.auth.schemas import AccessTokenResponse, EmailPasswordForm
+from app.modules.auth.schemas import (
+    AccessTokenResponse,
+    EmailPasswordForm,
+    RefreshTokenBody,
+)
 from app.modules.auth.service import AuthService
 from app.modules.users.schemas import UserCreate, UserResponse
 from app.modules.users.service import UserService
@@ -87,9 +91,7 @@ async def login_access_token(
 )
 async def refresh_token(
     response: Response,
-    refresh_token_body: str | None = Body(
-        None, embed=True, alias="refresh_token"
-    ),
+    refresh_token_body: RefreshTokenBody | None = Body(None),
     refresh_token_cookie: str | None = Cookie(
         None, alias=REFRESH_TOKEN_COOKIE_NAME
     ),
@@ -98,7 +100,9 @@ async def refresh_token(
     """
     Get a new access token using a refresh token.
     """
-    refresh_token_value = refresh_token_body or refresh_token_cookie
+    refresh_token_value = (
+        refresh_token_body.refresh_token if refresh_token_body else None
+    ) or refresh_token_cookie
     if not refresh_token_value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -127,7 +131,7 @@ async def refresh_token(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Logout and clear refresh token",
 )
-async def logout(response: Response) -> None:
+def logout(response: Response) -> None:
     """
     Clear the refresh token cookie. If refresh tokens are stored server-side,
     revoke them here as well.
