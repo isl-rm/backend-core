@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from app.modules.daily_checkin.models import (
@@ -7,7 +7,6 @@ from app.modules.daily_checkin.models import (
     Hydration,
     SubstanceStatus,
     SubstanceUse,
-    Symptom,
 )
 from app.modules.daily_checkin.schemas import (
     DailyCheckinResponse,
@@ -178,11 +177,11 @@ class DailyCheckinService:
         if payload.affirmation is not None:
             checkin.affirmation = payload.affirmation
         if payload.daily_plan is not None:
-            checkin.daily_plan = [DailyPlanItem(**item.model_dump()) for item in payload.daily_plan]
+            checkin.daily_plan = list(payload.daily_plan)
         if payload.kick_count is not None:
             checkin.kick_count = max(0, payload.kick_count)
         if payload.hydration is not None:
-            checkin.hydration = Hydration(**payload.hydration.model_dump())
+            checkin.hydration = payload.hydration
         if payload.craving_score is not None:
             checkin.craving_score = payload.craving_score
         if payload.symptoms is not None:
@@ -192,7 +191,7 @@ class DailyCheckinService:
         if payload.note is not None:
             checkin.note = payload.note
         if payload.substance_use is not None:
-            checkin.substance_use = SubstanceUse(**payload.substance_use.model_dump())
+            checkin.substance_use = payload.substance_use
         if payload.date is not None:
             checkin.date = payload.date
 
@@ -218,8 +217,6 @@ class DailyCheckinService:
         for entry in checkins:
             if entry.substance_use.status == SubstanceStatus.USED:
                 # Used day breaks the streak
-                if previous_date is None or self._days_apart(previous_date, entry.date) <= 1:
-                    break
                 break
             if previous_date is None:
                 streak += 1

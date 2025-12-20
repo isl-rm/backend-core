@@ -8,7 +8,6 @@ from app.modules.daily_checkin.schemas import (
     HistoryResponse,
     IncrementRequest,
     PlanToggleRequest,
-    SubstanceUseIn,
 )
 from app.modules.daily_checkin.service import DailyCheckinService
 from app.modules.users.models import User
@@ -86,12 +85,11 @@ async def toggle_plan_item(
     summary="Update substance use status for today",
 )
 async def update_substance_use(
-    payload: SubstanceUseIn,
+    payload: SubstanceUse,
     current_user: User = Depends(deps.get_current_user),
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> DailyCheckinResponse:
-    substance_use = SubstanceUse(**payload.model_dump())
-    return await service.set_substance_use(current_user, substance_use)
+    return await service.set_substance_use(current_user, payload)
 
 
 @router.get("/history", response_model=HistoryResponse, summary="List daily check-in history")

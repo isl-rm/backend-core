@@ -1,7 +1,5 @@
 from datetime import date, datetime, timezone
-from typing import List, Optional
-from uuid import uuid4
-import logging
+from typing import List
 from pydantic import AliasChoices, Field, field_validator
 
 from app.modules.daily_checkin.models import (
@@ -27,48 +25,19 @@ def _utc_midnight(dt: datetime | date | None = None) -> datetime:
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-class DailyPlanItemIn(CamelModel):
-    """Input shape for daily plan items."""
-
-    id: str = Field(default_factory=lambda: uuid4().hex)
-    title: str
-    category: Optional[str] = None
-    completed: bool = False
-    order: int = 0
-
-
-class HydrationIn(CamelModel):
-    goal: int = Field(default=8, ge=0, le=24)
-    count: int = Field(default=0, ge=0)
-
-
-class SubstanceUseIn(CamelModel):
-    status: SubstanceStatus = SubstanceStatus.NOT_USED
-    used_at: datetime | None = Field(default=None, alias="usedAt")
-    substances: list[str] = Field(default_factory=list)
-
-    @field_validator("status", mode="before")
-    @classmethod
-    def normalize_status(cls, value: object) -> object:
-        if isinstance(value, str) and value.lower() == "safe":
-            logging.warning("Substance status is set to 'safe' which is not a valid value. Using 'not_used' instead.")
-            return SubstanceStatus.NOT_USED
-        return value
-
-
 class DailyCheckinBase(CamelModel):
     """Common fields for create/update operations."""
 
     pregnancy_week: int | None = Field(default=None, ge=0, alias="pregnancyWeek")
     affirmation: str | None = None
-    daily_plan: List[DailyPlanItemIn] | None = Field(default=None, alias="dailyPlan")
+    daily_plan: List[DailyPlanItem] | None = Field(default=None, alias="dailyPlan")
     kick_count: int | None = Field(default=None, ge=0, alias="kickCount")
-    hydration: HydrationIn | None = None
+    hydration: Hydration | None = None
     craving_score: int | None = Field(default=None, ge=0, le=10, alias="cravingScore")
     symptoms: List[Symptom] | None = None
     mood: int | None = Field(default=None, ge=1, le=5)
     note: str | None = None
-    substance_use: SubstanceUseIn | None = Field(default=None, alias="substanceUse")
+    substance_use: SubstanceUse | None = Field(default=None, alias="substanceUse")
 
 
 class DailyCheckinUpdate(DailyCheckinBase):
