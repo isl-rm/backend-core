@@ -2,10 +2,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 from uuid import uuid4
-
+import logging
 from beanie import Document, Insert, Link, Replace, Save, Update, before_event
 from pymongo import IndexModel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.users.models import User
 
@@ -19,19 +19,19 @@ def _utc_today() -> datetime:
 class Symptom(str, Enum):
     """Supported symptom tags for daily check-ins."""
 
-    NAUSEA = "nausea"
-    SHAKING_TREMORS = "shaking_tremors"
-    SWEATING = "sweating"
-    ANXIETY_PANIC = "anxiety_panic"
-    IRRITABILITY = "irritability"
-    INSOMNIA = "insomnia"
-    MUSCLE_ACHES = "muscle_aches"
+    NAUSEA = "Nausea"
+    SHAKING_TREMORS = "Shaking Tremors"
+    SWEATING = "Sweating"
+    ANXIETY_PANIC = "Anxiety/ Panic"
+    IRRITABILITY = "Irritability"
+    INSOMNIA = "Insomnia"
+    MUSCLE_ACHES = "Muscle Aches"
 
 
 class SubstanceStatus(str, Enum):
     """Substance use status for the check-in."""
 
-    SAFE = "safe"
+    NOT_USED = "not_used"
     USED = "used"
 
 
@@ -55,9 +55,17 @@ class Hydration(BaseModel):
 class SubstanceUse(BaseModel):
     """Substance use declaration for the check-in."""
 
-    status: SubstanceStatus = SubstanceStatus.SAFE
+    status: SubstanceStatus = SubstanceStatus.NOT_USED
     used_at: datetime | None = Field(default=None, alias="usedAt")
     substances: list[str] = Field(default_factory=list)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value: object) -> object:
+        if isinstance(value, str) and value.lower() == "safe":
+            logging.warning("Substance status is set to 'safe' which is not a valid value. Using 'not_used' instead.")
+            return SubstanceStatus.NOT_USED
+        return value
 
     class Config:
         populate_by_name = True

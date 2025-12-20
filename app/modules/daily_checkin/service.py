@@ -205,7 +205,7 @@ class DailyCheckinService:
         )
 
     async def _sober_streak_days(self, user: User) -> int:
-        """Count consecutive SAFE days backwards until a USED day or gap appears."""
+        """Count consecutive NOT_USED days backwards until a USED day or gap appears."""
         checkins = await (
             DailyCheckin.find(DailyCheckin.user.id == user.id).sort("-date").to_list()
         )

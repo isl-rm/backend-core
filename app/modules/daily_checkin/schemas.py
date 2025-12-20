@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
-
+import logging
 from pydantic import AliasChoices, Field, field_validator
 
 from app.modules.daily_checkin.models import (
@@ -43,9 +43,17 @@ class HydrationIn(CamelModel):
 
 
 class SubstanceUseIn(CamelModel):
-    status: SubstanceStatus = SubstanceStatus.SAFE
+    status: SubstanceStatus = SubstanceStatus.NOT_USED
     used_at: datetime | None = Field(default=None, alias="usedAt")
     substances: list[str] = Field(default_factory=list)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value: object) -> object:
+        if isinstance(value, str) and value.lower() == "safe":
+            logging.warning("Substance status is set to 'safe' which is not a valid value. Using 'not_used' instead.")
+            return SubstanceStatus.NOT_USED
+        return value
 
 
 class DailyCheckinBase(CamelModel):
