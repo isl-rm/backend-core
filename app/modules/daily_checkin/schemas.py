@@ -109,6 +109,21 @@ class HistoryQuery(CamelModel):
         return value
 
 
+class HistoryRangeQuery(HistoryQuery):
+    start: datetime = Field(
+        ...,
+        description="Start date (ISO 8601 or epoch seconds)",
+        validation_alias=AliasChoices("startDate", "start"),
+        alias="start",
+    )
+    end: datetime = Field(
+        ...,
+        description="End date (ISO 8601 or epoch seconds)",
+        validation_alias=AliasChoices("endDate", "end"),
+        alias="end",
+    )
+
+
 class HistoryItem(CamelModel):
     """History row shaped for the log table."""
 
@@ -123,6 +138,30 @@ class HistoryItem(CamelModel):
     symptoms: List[Symptom] = Field(default_factory=list)
 
 
+class DailyCheckinHistoryItem(CamelModel):
+    id: str
+    date: datetime
+    pregnancy_week: int | None = None
+    affirmation: str | None = None
+    daily_plan: List[DailyPlanItem] = Field(default_factory=list)
+    kick_count: int = 0
+    hydration: Hydration = Field(default_factory=Hydration)
+    craving_score: int = 0
+    symptoms: List[Symptom] = Field(default_factory=list)
+    mood: int | None = None
+    note: str | None = None
+    substance_use: SubstanceUse = Field(default_factory=SubstanceUse)
+    created_at: datetime
+    updated_at: datetime
+    plan_completed: int = 0
+    plan_total: int = 0
+
+
 class HistoryResponse(CamelModel):
     items: List[HistoryItem]
+    total: int
+
+
+class DailyCheckinHistoryResponse(CamelModel):
+    items: List[DailyCheckinHistoryItem]
     total: int

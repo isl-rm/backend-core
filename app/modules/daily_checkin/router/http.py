@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.modules.daily_checkin.models import SubstanceUse
 from app.modules.daily_checkin.schemas import (
+    DailyCheckinHistoryResponse,
     DailyCheckinResponse,
     DailyCheckinUpdate,
     HistoryQuery,
     HistoryResponse,
+    HistoryRangeQuery,
     IncrementRequest,
     PlanToggleRequest,
 )
@@ -99,6 +101,22 @@ async def list_history(
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> HistoryResponse:
     return await service.get_history(current_user, params)
+
+
+@router.get(
+    "/history/range",
+    response_model=DailyCheckinHistoryResponse,
+    summary="List daily check-ins by date range",
+)
+async def list_history_range(
+    params: HistoryRangeQuery = Depends(),
+    current_user: User = Depends(deps.get_current_user),
+    service: DailyCheckinService = Depends(DailyCheckinService),
+) -> DailyCheckinHistoryResponse:
+    try:
+        return await service.get_history_range(current_user, params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/history/{id}", response_model=DailyCheckinResponse, summary="Update a specific check-in")

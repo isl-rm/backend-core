@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
+
 import pytest
 from httpx import AsyncClient
 
 from app.core import security
+from app.modules.daily_checkin.models import DailyCheckin, Hydration, SubstanceUse
 from app.modules.daily_checkin.service import DailyCheckinService
 
 
@@ -50,3 +53,50 @@ async def test_upsert_and_increment_routes(client: AsyncClient, create_user_func
     assert data["hydration"]["count"] == 1
     assert data["mood"] == 4
     assert data["note"] == "Feeling strong"
+
+
+@pytest.mark.asyncio
+async def test_history_range_endpoint_filters_by_date(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+
+    checkins = [
+        DailyCheckin(
+            user=user,
+            date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            hydration=Hydration(goal=8, count=2),
+            substance_use=SubstanceUse(),
+        ),
+        DailyCheckin(
+            user=user,
+            date=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            hydration=Hydration(goal=8, count=5),
+            substance_use=SubstanceUse(),
+        ),
+        DailyCheckin(
+            user=user,
+            date=datetime(2024, 1, 5, tzinfo=timezone.utc),
+            hydration=Hydration(goal=8, count=1),
+            substance_use=SubstanceUse(),
+        ),
+    ]
+    for checkin in checkins:
+        await checkin.insert()
+
+    resp = await client.get(
+        "/api/v1/daily-checkin/history/range",
+        params={
+            "start": "2024-01-01T00:00:00Z",
+            "end": "2024-01-02T00:00:00Z",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    assert data["items"][0]["date"].startswith("2024-01-02")
+    assert data["items"][1]["date"].startswith("2024-01-01")

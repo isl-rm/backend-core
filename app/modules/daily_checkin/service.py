@@ -13,11 +13,14 @@ from app.modules.daily_checkin.models import (
     SubstanceUse,
 )
 from app.modules.daily_checkin.schemas import (
+    DailyCheckinHistoryItem,
+    DailyCheckinHistoryResponse,
     DailyCheckinResponse,
     DailyCheckinUpdate,
     HistoryItem,
     HistoryQuery,
     HistoryResponse,
+    HistoryRangeQuery,
 )
 from app.modules.users.models import User
 
@@ -149,6 +152,54 @@ class DailyCheckinService:
                 )
             )
         return HistoryResponse(items=history_items, total=total)
+
+    async def get_history_range(
+        self,
+        user: User,
+        params: HistoryRangeQuery,
+    ) -> DailyCheckinHistoryResponse:
+        start = self._normalize_date(params.start)
+        end = self._normalize_date(params.end)
+        if start > end:
+            raise ValueError("start date must be before or equal to end date")
+
+        query = (
+            DailyCheckin.find(DailyCheckin.user.id == user.id)
+            .find(DailyCheckin.date >= start)
+            .find(DailyCheckin.date <= end)
+        )
+        items = await query.sort("-date").skip(params.skip).limit(params.limit).to_list()
+        count_query = (
+            DailyCheckin.find(DailyCheckin.user.id == user.id)
+            .find(DailyCheckin.date >= start)
+            .find(DailyCheckin.date <= end)
+        )
+        total = len(await count_query.to_list())
+
+        history_items: List[DailyCheckinHistoryItem] = []
+        for entry in items:
+            plan_completed, plan_total = self._plan_progress(entry.daily_plan or [])
+            history_items.append(
+                DailyCheckinHistoryItem(
+                    id=str(entry.id),
+                    date=entry.date,
+                    pregnancy_week=entry.pregnancy_week,
+                    affirmation=entry.affirmation,
+                    daily_plan=entry.daily_plan or [],
+                    kick_count=entry.kick_count,
+                    hydration=entry.hydration or Hydration(),
+                    craving_score=entry.craving_score,
+                    symptoms=entry.symptoms or [],
+                    mood=entry.mood,
+                    note=entry.note,
+                    substance_use=entry.substance_use or SubstanceUse(),
+                    created_at=entry.created_at,
+                    updated_at=entry.updated_at,
+                    plan_completed=plan_completed,
+                    plan_total=plan_total,
+                )
+            )
+        return DailyCheckinHistoryResponse(items=history_items, total=total)
 
     async def update_history_checkin(
         self, checkin_id: str, payload: DailyCheckinUpdate, user: User
