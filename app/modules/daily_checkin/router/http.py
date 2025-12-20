@@ -99,3 +99,16 @@ async def list_history(
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> HistoryResponse:
     return await service.get_history(current_user, params)
+
+
+@router.put("/history/{id}", response_model=DailyCheckinResponse, summary="Update a specific check-in")
+async def update_checkin(
+    id: str,
+    payload: DailyCheckinUpdate,
+    current_user: User = Depends(deps.get_current_user),
+    service: DailyCheckinService = Depends(DailyCheckinService),
+) -> DailyCheckinResponse:
+    try:
+        return await service.update_history_checkin(id, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

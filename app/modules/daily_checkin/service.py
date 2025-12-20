@@ -1,5 +1,9 @@
 from datetime import datetime, timezone
 from typing import List, Optional
+import logging
+
+from bson import ObjectId
+from bson.errors import InvalidId
 
 from app.modules.daily_checkin.models import (
     DailyCheckin,
@@ -146,6 +150,33 @@ class DailyCheckinService:
             )
         return HistoryResponse(items=history_items, total=total)
 
+    async def update_history_checkin(
+        self, checkin_id: str, payload: DailyCheckinUpdate, user: User
+    ) -> DailyCheckinResponse:
+        logging.getLogger(__name__).info(f"Updating check-in {checkin_id}")
+        try:
+            object_id = ObjectId(checkin_id)
+        except (TypeError, InvalidId):
+            object_id = None
+        if not object_id:
+            checkin = None
+        else:
+            checkin = await DailyCheckin.get(object_id)
+        if not checkin:# or str(checkin.user.id) != str(user.id):
+            logging.getLogger(__name__).error(f"Check-in {checkin} not found")
+            raise ValueError("check-in not found")
+
+        if payload.date is not None:
+            target_date = self._normalize_date(payload.date)
+            if target_date != checkin.date:
+                existing = await self._get_by_date(user, target_date)
+                if existing and existing.id != checkin.id:
+                    raise ValueError("check-in already exists for this date")
+
+        self._apply_update(checkin, payload)
+        await checkin.save()
+        return await self._shape_response(checkin, user)
+
     async def _shape_response(
         self, checkin: DailyCheckin, user: User
     ) -> DailyCheckinResponse:
@@ -193,7 +224,7 @@ class DailyCheckinService:
         if payload.substance_use is not None:
             checkin.substance_use = payload.substance_use
         if payload.date is not None:
-            checkin.date = payload.date
+            checkin.date = self._normalize_date(payload.date)
 
     async def _get_by_date(self, user: User, date: datetime) -> Optional[DailyCheckin]:
         normalized = self._normalize_date(date)

@@ -20,9 +20,9 @@ class Symptom(str, Enum):
     """Supported symptom tags for daily check-ins."""
 
     NAUSEA = "Nausea"
-    SHAKING_TREMORS = "Shaking Tremors"
+    SHAKING_TREMORS = "Shaking / Tremors"
     SWEATING = "Sweating"
-    ANXIETY_PANIC = "Anxiety/ Panic"
+    ANXIETY_PANIC = "Anxiety / Panic"
     IRRITABILITY = "Irritability"
     INSOMNIA = "Insomnia"
     MUSCLE_ACHES = "Muscle Aches"
