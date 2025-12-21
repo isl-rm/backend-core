@@ -56,6 +56,44 @@ async def test_upsert_and_increment_routes(client: AsyncClient, create_user_func
 
 
 @pytest.mark.asyncio
+async def test_plan_item_add_and_edit(client: AsyncClient, create_user_func) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+
+    today = await client.get("/api/v1/daily-checkin/today", headers=headers)
+    assert today.status_code == 200
+    data = today.json()
+    initial_count = len(data["dailyPlan"])
+
+    add_payload = {"title": "Walk 10 min", "category": "exercise"}
+    add_resp = await client.post(
+        "/api/v1/daily-checkin/today/plan", json=add_payload, headers=headers
+    )
+    assert add_resp.status_code == 200
+    add_data = add_resp.json()
+    assert len(add_data["dailyPlan"]) == initial_count + 1
+    new_item = next(item for item in add_data["dailyPlan"] if item["title"] == "Walk 10 min")
+    assert new_item["category"] == "exercise"
+    assert new_item["completed"] is False
+    assert new_item["order"] == initial_count + 1
+
+    update_payload = {"title": "Walk 15 min", "completed": True, "order": 10}
+    update_resp = await client.patch(
+        f"/api/v1/daily-checkin/today/plan/{new_item['id']}",
+        json=update_payload,
+        headers=headers,
+    )
+    assert update_resp.status_code == 200
+    update_data = update_resp.json()
+    updated_item = next(
+        item for item in update_data["dailyPlan"] if item["id"] == new_item["id"]
+    )
+    assert updated_item["title"] == "Walk 15 min"
+    assert updated_item["completed"] is True
+    assert updated_item["order"] == 10
+
+
+@pytest.mark.asyncio
 async def test_history_range_endpoint_filters_by_date(
     client: AsyncClient, create_user_func
 ) -> None:

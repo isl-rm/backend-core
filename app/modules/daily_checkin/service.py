@@ -21,6 +21,8 @@ from app.modules.daily_checkin.schemas import (
     HistoryQuery,
     HistoryResponse,
     HistoryRangeQuery,
+    PlanItemCreateRequest,
+    PlanItemUpdateRequest,
 )
 from app.modules.users.models import User
 
@@ -91,14 +93,43 @@ class DailyCheckinService:
         await checkin.save()
         return await self._shape_response(checkin, user)
 
-    async def toggle_plan_item(
-        self, user: User, item_id: str, completed: bool
+    async def add_plan_item(
+        self, user: User, payload: PlanItemCreateRequest
     ) -> DailyCheckinResponse:
         checkin = await self.get_or_create_today(user)
+        checkin.daily_plan = list(checkin.daily_plan or [])
+        order = (
+            payload.order
+            if payload.order is not None
+            else self._next_plan_order(checkin.daily_plan)
+        )
+        item = DailyPlanItem(
+            title=payload.title,
+            category=payload.category,
+            completed=payload.completed,
+            order=order,
+        )
+        checkin.daily_plan.append(item)
+        await checkin.save()
+        return await self._shape_response(checkin, user)
+
+    async def update_plan_item(
+        self, user: User, item_id: str, payload: PlanItemUpdateRequest
+    ) -> DailyCheckinResponse:
+        checkin = await self.get_or_create_today(user)
+        checkin.daily_plan = list(checkin.daily_plan or [])
         updated = False
+        fields_set = payload.model_fields_set
         for item in checkin.daily_plan:
             if item.id == item_id:
-                item.completed = completed
+                if "title" in fields_set and payload.title is not None:
+                    item.title = payload.title
+                if "category" in fields_set:
+                    item.category = payload.category
+                if "order" in fields_set and payload.order is not None:
+                    item.order = payload.order
+                if "completed" in fields_set and payload.completed is not None:
+                    item.completed = payload.completed
                 updated = True
                 break
         if not updated:
@@ -321,6 +352,11 @@ class DailyCheckinService:
         total = len(plan)
         completed = len([item for item in plan if item.completed])
         return completed, total
+
+    def _next_plan_order(self, plan: List[DailyPlanItem]) -> int:
+        if not plan:
+            return 1
+        return max(item.order for item in plan) + 1
 
     def _default_plan(self) -> List[DailyPlanItem]:
         return [

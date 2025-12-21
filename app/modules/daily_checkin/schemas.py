@@ -81,8 +81,18 @@ class IncrementRequest(CamelModel):
     delta: int = Field(default=1, ge=-100, le=100)
 
 
-class PlanToggleRequest(CamelModel):
-    completed: bool = True
+class PlanItemCreateRequest(CamelModel):
+    title: str = Field(..., min_length=1)
+    category: str | None = None
+    order: int | None = Field(default=None, ge=0)
+    completed: bool = False
+
+
+class PlanItemUpdateRequest(CamelModel):
+    title: str | None = Field(default=None, min_length=1)
+    category: str | None = None
+    order: int | None = Field(default=None, ge=0)
+    completed: bool | None = None
 
 
 class HistoryQuery(CamelModel):

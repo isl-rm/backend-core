@@ -5,7 +5,7 @@ from uuid import uuid4
 import logging
 from beanie import Document, Insert, Link, Replace, Save, Update, before_event
 from pymongo import IndexModel
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.users.models import User
 
@@ -67,8 +67,7 @@ class SubstanceUse(BaseModel):
             return SubstanceStatus.NOT_USED
         return value
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DailyCheckin(Document):

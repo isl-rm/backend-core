@@ -9,7 +9,8 @@ from app.modules.daily_checkin.schemas import (
     HistoryResponse,
     HistoryRangeQuery,
     IncrementRequest,
-    PlanToggleRequest,
+    PlanItemCreateRequest,
+    PlanItemUpdateRequest,
 )
 from app.modules.daily_checkin.service import DailyCheckinService
 from app.modules.users.models import User
@@ -67,18 +68,31 @@ async def increment_hydration(
 @router.patch(
     "/today/plan/{item_id}",
     response_model=DailyCheckinResponse,
-    summary="Toggle a plan item completion",
+    summary="Update a plan item",
 )
-async def toggle_plan_item(
+async def update_plan_item(
     item_id: str,
-    payload: PlanToggleRequest,
+    payload: PlanItemUpdateRequest,
     current_user: User = Depends(deps.get_current_user),
     service: DailyCheckinService = Depends(DailyCheckinService),
 ) -> DailyCheckinResponse:
     try:
-        return await service.toggle_plan_item(current_user, item_id, payload.completed)
+        return await service.update_plan_item(current_user, item_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/today/plan",
+    response_model=DailyCheckinResponse,
+    summary="Add a plan item",
+)
+async def add_plan_item(
+    payload: PlanItemCreateRequest,
+    current_user: User = Depends(deps.get_current_user),
+    service: DailyCheckinService = Depends(DailyCheckinService),
+) -> DailyCheckinResponse:
+    return await service.add_plan_item(current_user, payload)
 
 
 @router.patch(
