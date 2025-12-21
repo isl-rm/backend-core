@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Annotated, Any, List, Optional
 
-from pydantic import BaseModel, BeforeValidator, EmailStr, Field, field_validator
+from pydantic import BeforeValidator, EmailStr, Field, field_validator
 
 from app.shared.constants import Role, UserStatus
+from app.shared.schemas import CamelModel
 
 
 def stringify(v: Any) -> str:
@@ -13,12 +14,12 @@ def stringify(v: Any) -> str:
 PyObjectId = Annotated[str, BeforeValidator(stringify)]
 
 
-class ProfileBase(BaseModel):
+class ProfileBase(CamelModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
 
 
-class UserBase(BaseModel):
+class UserBase(CamelModel):
     email: EmailStr
     status: UserStatus = UserStatus.ACTIVE
     roles: List[Role] = [Role.USER]
@@ -36,7 +37,7 @@ class UserCreate(UserBase):
         return v
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(CamelModel):
     password: Optional[str] = None
     profile: Optional[ProfileBase] = None
     roles: Optional[List[Role]] = None

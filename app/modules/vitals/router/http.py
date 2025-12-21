@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.modules.users.models import User
@@ -13,6 +13,7 @@ from app.modules.vitals.schemas import (
     VitalCreate,
     VitalSeriesResponse,
     VitalsQueryParams,
+    VitalsSeriesQuery,
 )
 from app.modules.vitals.service import VitalService
 from app.shared import deps
@@ -21,22 +22,30 @@ router = APIRouter()
 
 
 async def get_vitals_query_params(
-    type: VitalType | None = Query(None, description="Filter by vital type"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum items to return"),
-    skip: int = Query(0, ge=0, description="Items to skip for pagination"),
-    start: datetime | None = Query(
-        None,
-        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
-    ),
-    end: datetime | None = Query(
-        None,
-        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
-    ),
+    params: VitalsQueryParams = Depends(),
 ) -> VitalsQueryParams:
     """Expose query params explicitly so Swagger shows them, defaulting to the last 24 hours."""
-    end = end or datetime.now(timezone.utc)
-    start = start or (end - timedelta(days=1))
-    return VitalsQueryParams(type=type, limit=limit, skip=skip, start=start, end=end)
+    resolved_end = params.end or datetime.now(timezone.utc)
+    resolved_start = params.start or (resolved_end - timedelta(days=1))
+    if resolved_start != params.start or resolved_end != params.end:
+        return params.model_copy(
+            update={"start": resolved_start, "end": resolved_end}
+        )
+    return params
+
+
+async def get_vital_series_query_params(
+    params: VitalsSeriesQuery = Depends(),
+) -> VitalsSeriesQuery:
+    logging.getLogger("series query").info("params: %s", params)
+    """Normalize date defaults for vitals series queries."""
+    resolved_end = params.end or datetime.now(timezone.utc)
+    resolved_start = params.start or (resolved_end - timedelta(days=1))
+    if resolved_start != params.start or resolved_end != params.end:
+        return params.model_copy(
+            update={"start": resolved_start, "end": resolved_end}
+        )
+    return params
 
 
 @router.post("/", response_model=Vital, summary="Record a new vital sign", status_code=201)
@@ -64,12 +73,13 @@ async def create_vitals_bulk(
     return await service.create_bulk(bulk_in, current_user)
 
 
-@router.get("/", response_model=List[Vital], summary="Get vital signs history")
+@router.get("/history", response_model=List[Vital], summary="Get vital signs history")
 async def read_vitals(
     params: VitalsQueryParams = Depends(get_vitals_query_params),
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> List[Vital]:
+    logging.getLogger("history").info("params: %s", params)
     """Get a user's vital history with optional type filter and pagination (defaults to last 24 hours)."""
     return await service.get_multi(
         user=current_user,
@@ -88,39 +98,29 @@ async def read_vitals(
 )
 async def read_vital_series(
     type: VitalType = Query(..., description="Vital type to retrieve"),
-    start: datetime | None = Query(
-        None,
-        description="Start of date range (ISO 8601 or epoch seconds). Defaults to 24h ago.",
-    ),
-    end: datetime | None = Query(
-        None,
-        description="End of date range (ISO 8601 or epoch seconds). Defaults to now.",
-    ),
-    limit: int = Query(
-        100,
-        ge=1,
-        le=1000,
-        description="Maximum items to return (raw points or daily buckets)",
-    ),
-    skip: int = Query(0, ge=0, description="Items to skip for pagination"),
+    params: VitalsSeriesQuery = Depends(get_vital_series_query_params),
     current_user: User = Depends(deps.get_current_user),
     service: VitalService = Depends(VitalService),
 ) -> VitalSeriesResponse:
+    logging.getLogger("series").info("params: %s", params)
     """
     Return raw data when the range is <=3 days; otherwise return daily averages.
     Defaults to the last 24 hours and supports pagination.
     """
     try:
-        end = end or datetime.now(timezone.utc)
-        start = start or (end - timedelta(days=1))
         return await service.get_series(
-            user=current_user, type=type, start=start, end=end, limit=limit, skip=skip
+            user=current_user,
+            type=type,
+            start=params.start,
+            end=params.end,
+            limit=params.limit,
+            skip=params.skip,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post(
+@router.get(
     "/latest",
     response_model=Vital,
     summary="Get most recent vital sign",

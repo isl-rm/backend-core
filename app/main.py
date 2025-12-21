@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.db import init_db
 from app.core.logging import setup_logging
 from app.core.middleware import StructlogMiddleware
+from app.modules.daily_checkin import router as daily_checkin_router
 from app.modules.auth import router as auth_router
 from app.modules.chat import router as chat_router
 from app.modules.users import router as users_router
@@ -73,6 +74,11 @@ app.include_router(
 )
 app.include_router(
     vitals_router.router, prefix=f"{settings.API_V1_STR}/vitals", tags=["vitals"]
+)
+app.include_router(
+    daily_checkin_router,
+    prefix=f"{settings.API_V1_STR}",
+    tags=["daily-checkin"],
 )
 
 
