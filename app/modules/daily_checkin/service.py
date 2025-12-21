@@ -144,7 +144,7 @@ class DailyCheckinService:
                     date=entry.date,
                     mood=entry.mood,
                     craving_score=entry.craving_score,
-                    substance_status=entry.substance_use.status,
+                    substance_use=entry.substance_use,
                     kick_count=entry.kick_count,
                     hydration_count=entry.hydration.count if entry.hydration else 0,
                     note=entry.note,
@@ -224,6 +224,7 @@ class DailyCheckinService:
                 if existing and existing.id != checkin.id:
                     raise ValueError("check-in already exists for this date")
 
+        logging.getLogger(__name__).info(f"Updating check-in payload {checkin}")
         self._apply_update(checkin, payload)
         await checkin.save()
         return await self._shape_response(checkin, user)

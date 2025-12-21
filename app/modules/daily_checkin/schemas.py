@@ -131,7 +131,7 @@ class HistoryItem(CamelModel):
     date: datetime
     mood: int | None = None
     craving_score: int = 0
-    substance_status: SubstanceStatus
+    substance_use: SubstanceUse
     kick_count: int
     hydration_count: int
     note: str | None = None
