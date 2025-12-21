@@ -297,10 +297,18 @@ def _patch_checkin_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any])
     async def _find_one(expr: object = None) -> DailyCheckin | None:
         return await _find(expr).first_or_none()
 
+    async def _get(checkin_id: object) -> DailyCheckin | None:
+        target = str(checkin_id)
+        for checkin in store["checkins"]:
+            if str(getattr(checkin, "id", None)) == target:
+                return checkin
+        return None
+
     monkeypatch.setattr(DailyCheckin, "insert", _insert, raising=False)
     monkeypatch.setattr(DailyCheckin, "save", _save, raising=False)
     monkeypatch.setattr(DailyCheckin, "find", staticmethod(_find), raising=False)
     monkeypatch.setattr(DailyCheckin, "find_one", staticmethod(_find_one), raising=False)
+    monkeypatch.setattr(DailyCheckin, "get", staticmethod(_get), raising=False)
 
 
 @pytest.fixture(autouse=True)

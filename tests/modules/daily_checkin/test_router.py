@@ -1,10 +1,16 @@
 from datetime import datetime, timezone
 
 import pytest
+from bson import ObjectId
 from httpx import AsyncClient
 
 from app.core import security
-from app.modules.daily_checkin.models import DailyCheckin, Hydration, SubstanceUse
+from app.modules.daily_checkin.models import (
+    DailyCheckin,
+    Hydration,
+    SubstanceStatus,
+    SubstanceUse,
+)
 from app.modules.daily_checkin.service import DailyCheckinService
 
 
@@ -138,3 +144,103 @@ async def test_history_range_endpoint_filters_by_date(
     assert len(data["items"]) == 2
     assert data["items"][0]["date"].startswith("2024-01-02")
     assert data["items"][1]["date"].startswith("2024-01-01")
+
+
+@pytest.mark.asyncio
+async def test_substance_use_endpoint_updates_status(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+
+    payload = {
+        "status": "used",
+        "usedAt": "2024-02-01T10:00:00Z",
+        "substances": ["alcohol"],
+    }
+    resp = await client.patch(
+        "/api/v1/daily-checkin/today/substance", json=payload, headers=headers
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["substanceUse"]["status"] == "used"
+    assert data["substanceUse"]["usedAt"].startswith("2024-02-01T10:00:00")
+    assert data["substanceUse"]["substances"] == ["alcohol"]
+
+
+@pytest.mark.asyncio
+async def test_history_endpoint_lists_items(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+
+    checkins = [
+        DailyCheckin(
+            user=user,
+            date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            hydration=Hydration(goal=8, count=4),
+            kick_count=1,
+            mood=2,
+            substance_use=SubstanceUse(status=SubstanceStatus.NOT_USED),
+        ),
+        DailyCheckin(
+            user=user,
+            date=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            hydration=Hydration(goal=8, count=1),
+            kick_count=3,
+            mood=5,
+            substance_use=SubstanceUse(status=SubstanceStatus.NOT_USED),
+        ),
+    ]
+    for checkin in checkins:
+        await checkin.insert()
+
+    resp = await client.get(
+        "/api/v1/daily-checkin/history",
+        params={"start": "2024-01-01T00:00:00Z", "end": "2024-01-03T00:00:00Z"},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    assert data["items"][0]["date"].startswith("2024-01-02")
+    assert data["items"][0]["hydrationCount"] == 1
+    assert data["items"][0]["kickCount"] == 3
+    assert data["items"][1]["date"].startswith("2024-01-01")
+    assert data["items"][1]["hydrationCount"] == 4
+    assert data["items"][1]["kickCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_update_history_checkin_endpoint(
+    client: AsyncClient, create_user_func
+) -> None:
+    user = await create_user_func()
+    headers = _auth_headers(str(user.id))
+
+    checkin_id = ObjectId()
+    checkin = DailyCheckin(
+        id=checkin_id,
+        user=user,
+        date=datetime(2024, 3, 1, tzinfo=timezone.utc),
+        hydration=Hydration(goal=8, count=2),
+        mood=2,
+        substance_use=SubstanceUse(status=SubstanceStatus.NOT_USED),
+    )
+    await checkin.insert()
+
+    update_payload = {"mood": 4, "note": "Updated note"}
+    resp = await client.put(
+        f"/api/v1/daily-checkin/history/{checkin_id}",
+        json=update_payload,
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mood"] == 4
+    assert data["note"] == "Updated note"
