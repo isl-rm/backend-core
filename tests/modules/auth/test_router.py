@@ -12,6 +12,10 @@ from app.modules.users.service import UserService
 from app.shared.constants import Role, UserStatus
 
 
+def _get_set_cookie_headers(response) -> list[str]:
+    return [value.lower() for value in response.headers.get_list("set-cookie")]
+
+
 @pytest.mark.asyncio
 async def test_login_access_token_sets_refresh_cookie(
     client: AsyncClient, create_user_func
@@ -27,6 +31,7 @@ async def test_login_access_token_sets_refresh_cookie(
     data = response.json()
     assert "accessToken" in data
     assert data["tokenType"] == "bearer"
+    assert data["roles"] == [Role.USER]
     refresh_cookie = response.cookies.get("refresh_token")
     assert refresh_cookie
 
@@ -46,6 +51,27 @@ async def test_login_accepts_username_field_for_swagger(
     data = response.json()
     assert "accessToken" in data
     assert data["tokenType"] == "bearer"
+    assert data["roles"] == [Role.USER]
+
+
+@pytest.mark.asyncio
+async def test_login_cookie_sets_auth_cookies_and_returns_profile(
+    client: AsyncClient, create_user_func
+):
+    password = "password123"
+    user = await create_user_func(password=password, profile={"name": "Cookie User"})
+
+    response = await client.post(
+        "/api/v1/login/cookie",
+        data={"email": user.email, "password": password},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == user.email
+    assert data["name"] == "Cookie User"
+    assert data["roles"] == [Role.USER]
+    assert response.cookies.get("access_token")
+    assert response.cookies.get("refresh_token")
 
 
 @pytest.mark.asyncio
@@ -184,9 +210,10 @@ async def test_logout_clears_refresh_cookie(client: AsyncClient, create_user_fun
     logout_response = await client.post("/api/v1/logout")
     assert logout_response.status_code == 204
     # httpx CookieJar should drop the cookie; header should indicate deletion
-    delete_header = (logout_response.headers.get("set-cookie") or "").lower()
-    assert "refresh_token=" in delete_header
-    assert "max-age=0" in delete_header
+    delete_headers = _get_set_cookie_headers(logout_response)
+    assert any("refresh_token=" in h for h in delete_headers)
+    assert any("access_token=" in h for h in delete_headers)
+    assert any("max-age=0" in h for h in delete_headers)
 
     # Subsequent refresh call should fail due to missing cookie
     refresh_response = await client.post("/api/v1/refresh-token")
@@ -247,8 +274,10 @@ async def test_login_logout_flow_clears_cookie(client: AsyncClient, create_user_
 
     logout_response = await client.post("/api/v1/logout")
     assert logout_response.status_code == 204
-    clear_header = (logout_response.headers.get("set-cookie") or "").lower()
-    assert "max-age=0" in clear_header
+    clear_headers = _get_set_cookie_headers(logout_response)
+    assert any("refresh_token=" in h for h in clear_headers)
+    assert any("access_token=" in h for h in clear_headers)
+    assert any("max-age=0" in h for h in clear_headers)
 
 
 @pytest.mark.asyncio
@@ -258,7 +287,7 @@ async def test_login_access_token_with_override_sets_tokens(client: AsyncClient)
             self.created_tokens: list[tuple[str, str]] = []
 
         async def authenticate(self, email: str, password: str) -> SimpleNamespace:
-            return SimpleNamespace(id="user123")
+            return SimpleNamespace(id="user123", roles=[Role.USER])
 
         def create_access_token(self, sub: str) -> str:
             self.created_tokens.append(("access", sub))
@@ -280,6 +309,7 @@ async def test_login_access_token_with_override_sets_tokens(client: AsyncClient)
 
     assert response.status_code == 200
     assert response.json()["accessToken"] == "access-user123"
+    assert response.json()["roles"] == [Role.USER]
     assert response.cookies.get("refresh_token") == "refresh-user123"
     assert ("access", "user123") in fake_auth.created_tokens
     assert ("refresh", "user123") in fake_auth.created_tokens

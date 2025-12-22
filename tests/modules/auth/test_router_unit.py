@@ -4,7 +4,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException, Response
 
-from app.modules.auth.router import create_user, login_access_token, logout, refresh_token
+from app.modules.auth.router import (
+    create_user,
+    login_access_token,
+    login_cookie,
+    logout,
+    refresh_token,
+)
 from app.modules.auth.schemas import EmailPasswordForm, RefreshTokenBody
 from app.modules.users.schemas import UserCreate
 from app.shared.constants import Role, UserStatus
@@ -14,7 +20,7 @@ from app.shared.constants import Role, UserStatus
 async def test_login_access_token_unit():
     class FakeAuthService:
         async def authenticate(self, email: str, password: str):
-            return SimpleNamespace(id="user123")
+            return SimpleNamespace(id="user123", roles=[Role.USER])
 
         def create_access_token(self, sub: str) -> str:
             return f"access-{sub}"
@@ -29,6 +35,7 @@ async def test_login_access_token_unit():
     )
 
     assert result["access_token"] == "access-user123"
+    assert result["roles"] == [Role.USER]
     assert "refresh_token=refresh-user123" in (
         response.headers.get("set-cookie") or ""
     ).lower()
@@ -58,9 +65,13 @@ async def test_refresh_token_body_and_cookie_paths():
     )
     assert result["access_token"] == "new-access-user456"
     assert auth.seen_tokens == ["body-token"]
-    assert (response.headers.get("set-cookie") or "").lower().startswith(
-        "refresh_token=body-token".lower()
-    )
+    headers = [
+        value.decode().lower()
+        for header, value in response.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("refresh_token=body-token" in h for h in headers)
+    assert any("access_token=new-access-user456" in h for h in headers)
 
     # Cookie fallback
     response2 = Response()
@@ -73,7 +84,13 @@ async def test_refresh_token_body_and_cookie_paths():
     )
     assert result2["access_token"] == "new-access-user456"
     assert auth2.seen_tokens == ["cookie-only"]
-    assert "refresh_token=cookie-only" in (response2.headers.get("set-cookie") or "").lower()
+    headers2 = [
+        value.decode().lower()
+        for header, value in response2.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("refresh_token=cookie-only" in h for h in headers2)
+    assert any("access_token=new-access-user456" in h for h in headers2)
 
 
 @pytest.mark.asyncio
@@ -109,9 +126,49 @@ async def test_refresh_token_missing_and_invalid():
 def test_logout_unit_sets_deletion_cookie():
     response = Response()
     logout(response)
-    header = (response.headers.get("set-cookie") or "").lower()
-    assert "refresh_token=" in header
-    assert "max-age=0" in header
+    headers = [
+        value.decode().lower()
+        for header, value in response.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("refresh_token=" in h for h in headers)
+    assert any("access_token=" in h for h in headers)
+    assert any("max-age=0" in h for h in headers)
+
+
+@pytest.mark.asyncio
+async def test_login_cookie_sets_access_and_refresh_cookies():
+    class FakeAuthService:
+        async def authenticate(self, email: str, password: str):
+            return SimpleNamespace(
+                id="user123",
+                email="u@example.com",
+                roles=[Role.DOCTOR],
+                profile=SimpleNamespace(name="Dr. U"),
+            )
+
+        def create_access_token(self, sub: str) -> str:
+            return f"access-{sub}"
+
+        def create_refresh_token(self, sub: str) -> str:
+            return f"refresh-{sub}"
+
+    response = Response()
+    form = EmailPasswordForm(email="u@example.com", password="pw")
+    result = await login_cookie(
+        response, form_data=form, auth_service=FakeAuthService()
+    )
+
+    assert result["email"] == "u@example.com"
+    assert result["name"] == "Dr. U"
+    assert result["roles"] == [Role.DOCTOR]
+    headers = [
+        value.decode().lower()
+        for header, value in response.raw_headers
+        if header.decode().lower() == "set-cookie"
+    ]
+    assert any("access_token=access-user123" in h for h in headers)
+    assert any("refresh_token=refresh-user123" in h for h in headers)
 
 
 @pytest.mark.asyncio

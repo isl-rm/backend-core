@@ -1,8 +1,9 @@
 from typing import Optional
 
 from fastapi import Form
-from pydantic import BaseModel
-from app.shared.schemas import CamelModel
+from pydantic import BaseModel, EmailStr
+
+from app.shared.constants import Role
 
 
 class AccessTokenResponse(BaseModel):
@@ -10,11 +11,21 @@ class AccessTokenResponse(BaseModel):
     token_type: str
 
 
-class TokenData(CamelModel):
+class AccessTokenWithRolesResponse(AccessTokenResponse):
+    roles: list[Role]
+
+
+class CookieLoginResponse(BaseModel):
+    email: EmailStr
+    name: str | None = None
+    roles: list[Role]
+
+
+class TokenData(BaseModel):
     email: Optional[str] = None
 
 
-class RefreshTokenBody(CamelModel):
+class RefreshTokenBody(BaseModel):
     refresh_token: str | None = None
 
 
