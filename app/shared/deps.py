@@ -1,21 +1,34 @@
 from typing import Any, List
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import ValidationError
 
 from app.core import security
 from app.core.config import settings
+from app.modules.auth.constants import ACCESS_TOKEN_COOKIE_NAME
 from app.modules.users.models import User
 from app.shared.constants import Role, UserStatus
 
 reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/login/access-token"
+    tokenUrl=f"{settings.API_V1_STR}/login/access-token",
+    auto_error=False,
 )
 
 
-async def get_current_user(token: str = Depends(reusable_oauth2)) -> User:
+async def get_current_user(
+    request: Request,
+    token: str | None = Depends(reusable_oauth2),
+) -> User:
+    if not token:
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         payload = jwt.decode(
             token, security.SECRET_KEY, algorithms=[security.ALGORITHM]

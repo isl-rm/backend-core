@@ -5,14 +5,16 @@ from fastapi import (
     Body,
     Cookie,
     Depends,
-    Form,
     HTTPException,
     Response,
     status,
 )
-from app.core.config import settings
 
 from app.modules.auth.constants import (
+    ACCESS_TOKEN_COOKIE_NAME,
+    ACCESS_TOKEN_MAX_AGE,
+    ACCESS_TOKEN_SAMESITE,
+    ACCESS_TOKEN_SECURE,
     REFRESH_TOKEN_COOKIE_NAME,
     REFRESH_TOKEN_MAX_AGE,
     REFRESH_TOKEN_SECURE,
@@ -20,6 +22,8 @@ from app.modules.auth.constants import (
 )
 from app.modules.auth.schemas import (
     AccessTokenResponse,
+    AccessTokenWithRolesResponse,
+    CookieLoginResponse,
     EmailPasswordForm,
     RefreshTokenBody,
 )
@@ -30,6 +34,18 @@ from app.modules.users.service import UserService
 router = APIRouter()
 
 
+def _set_access_cookie(response: Response, access_token: str) -> None:
+    response.set_cookie(
+        key=ACCESS_TOKEN_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=ACCESS_TOKEN_SECURE,
+        samesite=ACCESS_TOKEN_SAMESITE,
+        max_age=ACCESS_TOKEN_MAX_AGE,
+        path="/",
+    )
+
+
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     response.set_cookie(
         key=REFRESH_TOKEN_COOKIE_NAME,
@@ -38,6 +54,16 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         secure=REFRESH_TOKEN_SECURE,
         samesite=REFRESH_TOKEN_SAMESITE,
         max_age=REFRESH_TOKEN_MAX_AGE,
+        path="/",
+    )
+
+
+def _clear_access_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=ACCESS_TOKEN_COOKIE_NAME,
+        httponly=True,
+        secure=ACCESS_TOKEN_SECURE,
+        samesite=ACCESS_TOKEN_SAMESITE,
         path="/",
     )
 
@@ -54,7 +80,7 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 @router.post(
     "/login/access-token",
-    response_model=AccessTokenResponse,
+    response_model=AccessTokenWithRolesResponse,
     summary="Login to get access token",
 )
 async def login_access_token(
@@ -81,7 +107,42 @@ async def login_access_token(
     refresh_token = auth_service.create_refresh_token(user.id)
     _set_refresh_cookie(response, refresh_token)
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "roles": user.roles,
+    }
+
+
+@router.post(
+    "/login/cookie",
+    response_model=CookieLoginResponse,
+    summary="Login to set auth cookies",
+)
+async def login_cookie(
+    response: Response,
+    form_data: EmailPasswordForm = Depends(),
+    auth_service: AuthService = Depends(AuthService),
+) -> Any:
+    """
+    Login using email/password and set access + refresh cookies for web clients.
+    """
+    if not form_data.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email or username is required",
+        )
+
+    user = await auth_service.authenticate(form_data.email, form_data.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+
+    access_token = auth_service.create_access_token(user.id)
+    refresh_token = auth_service.create_refresh_token(user.id)
+    _set_access_cookie(response, access_token)
+    _set_refresh_cookie(response, refresh_token)
+
+    return {"email": user.email, "name": user.profile.name, "roles": user.roles}
 
 
 @router.post(
@@ -123,19 +184,21 @@ async def refresh_token(
     new_access_token = auth_service.create_access_token(sub)
     # We return the same refresh token (rotation not implemented yet)
     _set_refresh_cookie(response, refresh_token_value)
+    _set_access_cookie(response, new_access_token)
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 
 @router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Logout and clear refresh token",
+    summary="Logout and clear auth cookies",
 )
 def logout(response: Response) -> None:
     """
-    Clear the refresh token cookie. If refresh tokens are stored server-side,
-    revoke them here as well.
+    Clear auth cookies. If refresh tokens are stored server-side, revoke them here as
+    well.
     """
+    _clear_access_cookie(response)
     _clear_refresh_cookie(response)
 
 
