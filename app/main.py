@@ -12,6 +12,9 @@ from app.core.middleware import StructlogMiddleware
 from app.modules.alerts import router as alerts_router
 from app.modules.daily_checkin import router as daily_checkin_router
 from app.modules.auth import router as auth_router
+from app.modules.caregivers.conditions import router as caregiver_conditions_router
+from app.modules.caregivers.patients import router as caregiver_patients_router
+from app.modules.caregivers.vitals import router as caregiver_vitals_router
 from app.modules.chat import router as chat_router
 from app.modules.users import router as users_router
 from app.modules.vitals import router as vitals_router
@@ -72,6 +75,21 @@ app.include_router(chat_router.router, prefix=settings.API_V1_STR)
 app.include_router(auth_router.router, prefix=settings.API_V1_STR, tags=["auth"])
 app.include_router(
     users_router.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"]
+)
+app.include_router(
+    caregiver_patients_router.router,
+    prefix=f"{settings.API_V1_STR}/caregivers",
+    tags=["caregivers"],
+)
+app.include_router(
+    caregiver_conditions_router.router,
+    prefix=f"{settings.API_V1_STR}/caregivers",
+    tags=["caregivers"],
+)
+app.include_router(
+    caregiver_vitals_router.router,
+    prefix=f"{settings.API_V1_STR}/caregivers",
+    tags=["caregivers"],
 )
 app.include_router(alerts_router, prefix=f"{settings.API_V1_STR}/alerts", tags=["alerts"])
 app.include_router(
