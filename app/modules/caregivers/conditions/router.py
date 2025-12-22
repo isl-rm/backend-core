@@ -1,7 +1,7 @@
 from typing import Optional, Set
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
 
 from app.core import security
@@ -9,6 +9,7 @@ from app.modules.caregivers.conditions.service import (
     CaregiverSubscription,
     caregiver_condition_manager,
 )
+from app.modules.caregivers.patients.service import CaregiverPatientService
 from app.modules.users.models import User
 from app.shared.constants import Role, UserStatus
 
@@ -65,6 +66,7 @@ async def websocket_caregiver_conditions(
     token: str,
     patient_ids: Optional[str] = None,
     severity: Optional[str] = None,
+    patient_service: CaregiverPatientService = Depends(CaregiverPatientService),
 ) -> None:
     """
     Placeholder caregiver WebSocket for moderate/critical condition updates.
@@ -73,8 +75,11 @@ async def websocket_caregiver_conditions(
     if not user:
         return
 
+    requested_ids = _parse_comma_list(patient_ids)
+    authorized_ids = set(await patient_service.list_patient_ids(user))
+    allowed_ids = requested_ids & authorized_ids if requested_ids else authorized_ids
     subscription = CaregiverSubscription(
-        patient_ids=_parse_comma_list(patient_ids),
+        patient_ids=allowed_ids,
         severities=_normalize_severities(severity),
     )
     await caregiver_condition_manager.connect(websocket, subscription)

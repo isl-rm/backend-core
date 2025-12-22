@@ -13,8 +13,12 @@ from app.modules.alerts import router as alerts_router
 from app.modules.daily_checkin import router as daily_checkin_router
 from app.modules.auth import router as auth_router
 from app.modules.caregivers.conditions import router as caregiver_conditions_router
+from app.modules.caregivers.messages import router as caregiver_messages_router
 from app.modules.caregivers.patients import router as caregiver_patients_router
 from app.modules.caregivers.vitals import router as caregiver_vitals_router
+from app.modules.patients.access_requests import (
+    router as patient_access_requests_router,
+)
 from app.modules.chat import router as chat_router
 from app.modules.users import router as users_router
 from app.modules.vitals import router as vitals_router
@@ -77,29 +81,35 @@ app.include_router(
     users_router.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"]
 )
 app.include_router(
-    caregiver_patients_router.router,
+    caregiver_patients_router,
     prefix=f"{settings.API_V1_STR}/caregivers",
     tags=["caregivers"],
 )
 app.include_router(
-    caregiver_conditions_router.router,
+    caregiver_conditions_router,
     prefix=f"{settings.API_V1_STR}/caregivers",
     tags=["caregivers"],
 )
 app.include_router(
-    caregiver_vitals_router.router,
+    caregiver_messages_router,
     prefix=f"{settings.API_V1_STR}/caregivers",
     tags=["caregivers"],
+)
+app.include_router(
+    caregiver_vitals_router,
+    prefix=f"{settings.API_V1_STR}/caregivers",
+    tags=["caregivers"],
+)
+app.include_router(
+    patient_access_requests_router,
+    prefix=f"{settings.API_V1_STR}/patients",
+    tags=["patients"],
 )
 app.include_router(alerts_router, prefix=f"{settings.API_V1_STR}/alerts", tags=["alerts"])
 app.include_router(
     vitals_router.router, prefix=f"{settings.API_V1_STR}/vitals", tags=["vitals"]
 )
-app.include_router(
-    daily_checkin_router,
-    prefix=f"{settings.API_V1_STR}",
-    tags=["daily-checkin"],
-)
+app.include_router(daily_checkin_router, prefix=f"{settings.API_V1_STR}", tags=["daily-checkin"])
 
 
 @app.get("/health")

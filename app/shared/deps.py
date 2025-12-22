@@ -49,11 +49,12 @@ async def get_current_user(
 
 
 class RoleChecker:
-    def __init__(self, allowed_roles: List[Role]) -> None:
+    def __init__(self, allowed_roles: List[Role], allow_admin: bool = True) -> None:
         self.allowed_roles = allowed_roles
+        self.allow_admin = allow_admin
 
     def __call__(self, user: User = Depends(get_current_user)) -> User:
-        if Role.ADMIN in user.roles:
+        if self.allow_admin and Role.ADMIN in user.roles:
             return user
 
         if set(user.roles).intersection(self.allowed_roles):

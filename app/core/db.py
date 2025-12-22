@@ -2,6 +2,11 @@ from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import settings
+from app.modules.caregivers.conditions.models import PatientCondition
+from app.modules.caregivers.patients.models import (
+    CaregiverAccessRequest,
+    CaregiverPatientAccess,
+)
 from app.modules.daily_checkin.models import DailyCheckin
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital
@@ -31,6 +36,9 @@ async def init_db() -> AsyncIOMotorClient:
             User,
             Vital,
             DailyCheckin,
+            CaregiverPatientAccess,
+            CaregiverAccessRequest,
+            PatientCondition,
         ],
     )
 

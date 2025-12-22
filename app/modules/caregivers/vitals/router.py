@@ -2,10 +2,11 @@ import json
 from typing import Optional, Set
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
 
 from app.core import security
+from app.modules.caregivers.patients.service import CaregiverPatientService
 from app.modules.caregivers.vitals.service import (
     CaregiverVitalSubscription,
     caregiver_vitals_manager,
@@ -78,6 +79,7 @@ async def _authenticate_caregiver_websocket(
 async def websocket_caregiver_vitals(
     websocket: WebSocket,
     token: str,
+    patient_service: CaregiverPatientService = Depends(CaregiverPatientService),
 ) -> None:
     """
     Placeholder caregiver WebSocket for patient vital updates.
@@ -95,11 +97,21 @@ async def websocket_caregiver_vitals(
             raw_message = await websocket.receive_text()
             event, patient_ids = _extract_event(raw_message)
             if event in {"start", "subscribe"}:
+                authorized_ids = set(await patient_service.list_patient_ids(user))
+                requested_ids = patient_ids
+                allowed_ids = (
+                    requested_ids & authorized_ids
+                    if requested_ids
+                    else authorized_ids
+                )
                 caregiver_vitals_manager.subscribe(
                     websocket,
-                    CaregiverVitalSubscription(patient_ids=patient_ids),
+                    CaregiverVitalSubscription(patient_ids=allowed_ids),
                 )
-                await websocket.send_text("subscribed")
+                if not allowed_ids:
+                    await websocket.send_text("no_authorized_patients")
+                else:
+                    await websocket.send_text("subscribed")
             elif event in {"stop", "unsubscribe"}:
                 await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
                 break
