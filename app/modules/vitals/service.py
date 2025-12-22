@@ -3,9 +3,11 @@ from typing import Iterable, List, Optional
 
 from fastapi import WebSocket
 from pydantic import TypeAdapter
+import structlog
 
 from app.core import cache
 from app.core.config import settings
+from app.modules.alerts.service import alert_service
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital, VitalType
 from app.modules.vitals.schemas import (
@@ -16,6 +18,8 @@ from app.modules.vitals.schemas import (
     VitalCreate,
     VitalSeriesResponse,
 )
+
+log = structlog.get_logger()
 
 
 class VitalService:
@@ -54,6 +58,22 @@ class VitalService:
         """
         # 1. Persist
         await self.create(vital_in, user)
+
+        # 1b. Mock AI alerting (best-effort, do not block streaming)
+        try:
+            timestamp = self._normalize_timestamp(
+                vital_in.timestamp or datetime.now(timezone.utc)
+            )
+            await alert_service.process_vital(
+                patient_id=str(user.id),
+                vital_type=vital_in.type.value,
+                value=vital_in.value,
+                unit=vital_in.unit,
+                timestamp=timestamp,
+                raw_payload=raw_data,
+            )
+        except Exception as exc:
+            log.warning("alert processing failed", error=str(exc))
 
         # 2. Broadcast
         # Ensure we're using the global manager instance for broadcasting
