@@ -24,6 +24,8 @@ if "argon2" not in sys.modules:
 
 from app.core.config import settings
 from app.main import app
+from app.modules.caregivers.patient_conditions.models import PatientCondition
+from app.modules.caregivers.patients.models import CaregiverAccessRequest, CaregiverPatientAccess
 from app.modules.daily_checkin.models import DailyCheckin
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital
@@ -53,12 +55,22 @@ class _FieldProxy:
 
 def _install_field_proxies() -> None:
     # These proxies prevent AttributeErrors when code builds expressions like User.email == email
+    User.id = _FieldProxy("id")  # type: ignore[attr-defined]
     User.email = _FieldProxy("email")  # type: ignore[attr-defined]
     Vital.type = _FieldProxy("type")  # type: ignore[attr-defined]
     Vital.timestamp = _FieldProxy("timestamp")  # type: ignore[attr-defined]
     Vital.user = SimpleNamespace(id=_FieldProxy("user_id"))  # type: ignore[attr-defined]
     DailyCheckin.date = _FieldProxy("date")  # type: ignore[attr-defined]
     DailyCheckin.user = SimpleNamespace(id=_FieldProxy("user_id"))  # type: ignore[attr-defined]
+    CaregiverPatientAccess.caregiver_id = _FieldProxy("caregiver_id")  # type: ignore[attr-defined]
+    CaregiverPatientAccess.patient_id = _FieldProxy("patient_id")  # type: ignore[attr-defined]
+    CaregiverPatientAccess.active = _FieldProxy("active")  # type: ignore[attr-defined]
+    CaregiverAccessRequest.caregiver_id = _FieldProxy("caregiver_id")  # type: ignore[attr-defined]
+    CaregiverAccessRequest.patient_id = _FieldProxy("patient_id")  # type: ignore[attr-defined]
+    CaregiverAccessRequest.requested_by = _FieldProxy("requested_by")  # type: ignore[attr-defined]
+    CaregiverAccessRequest.status = _FieldProxy("status")  # type: ignore[attr-defined]
+    PatientCondition.patient_id = _FieldProxy("patient_id")  # type: ignore[attr-defined]
+    PatientCondition.severity = _FieldProxy("severity")  # type: ignore[attr-defined]
     _dummy_settings = SimpleNamespace(pymongo_collection=None, use_state_management=False)
     # Prevent Beanie from requiring real collection initialization
     if getattr(User, "_document_settings", None) is None:
@@ -67,12 +79,18 @@ def _install_field_proxies() -> None:
         Vital._document_settings = _dummy_settings  # type: ignore[attr-defined]
     if getattr(DailyCheckin, "_document_settings", None) is None:
         DailyCheckin._document_settings = _dummy_settings  # type: ignore[attr-defined]
+    if getattr(CaregiverPatientAccess, "_document_settings", None) is None:
+        CaregiverPatientAccess._document_settings = _dummy_settings  # type: ignore[attr-defined]
+    if getattr(CaregiverAccessRequest, "_document_settings", None) is None:
+        CaregiverAccessRequest._document_settings = _dummy_settings  # type: ignore[attr-defined]
+    if getattr(PatientCondition, "_document_settings", None) is None:
+        PatientCondition._document_settings = _dummy_settings  # type: ignore[attr-defined]
 
 
 def _extract_filters(expr: object) -> list[tuple[str, str, object]]:
     if isinstance(expr, tuple) and len(expr) == 3:
         op, field, value = expr
-        if op in {"eq", "ge", "le", "gt", "lt"}:
+        if op in {"eq", "ge", "le", "gt", "lt", "in"}:
             return [(op, field, value)]
     return []
 
@@ -106,10 +124,208 @@ def _patch_user_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) ->
                 return user
         return None
 
+    class _FakeQuery:
+        def __init__(self, filters: list[tuple[str, str, object]] | None = None) -> None:
+            self.filters = filters or []
+
+        def find(self, expr: object) -> "_FakeQuery":
+            merged = [*self.filters, *_extract_filters(expr)]
+            return _FakeQuery(merged)
+
+        def _matches(self, user: User) -> bool:
+            for op, field, value in self.filters:
+                attr = getattr(user, field, None)
+                if op == "eq":
+                    if str(attr) != str(value):
+                        return False
+                elif op == "in":
+                    if str(attr) not in {str(item) for item in value}:
+                        return False
+            return True
+
+        async def to_list(self) -> list[User]:
+            return [u for u in store["users"].values() if self._matches(u)]
+
+        async def first_or_none(self) -> User | None:
+            items = await self.to_list()
+            return items[0] if items else None
+
+    def _find(expr: object = None) -> _FakeQuery:
+        return _FakeQuery(_extract_filters(expr))
+
     monkeypatch.setattr(User, "insert", _insert, raising=False)
     monkeypatch.setattr(User, "save", _save, raising=False)
     monkeypatch.setattr(User, "get", staticmethod(_get), raising=False)
     monkeypatch.setattr(User, "find_one", staticmethod(_find_one), raising=False)
+    monkeypatch.setattr(User, "find", staticmethod(_find), raising=False)
+
+
+def _filters_from_exprs(exprs: tuple[object, ...]) -> list[tuple[str, str, object]]:
+    filters: list[tuple[str, str, object]] = []
+    for expr in exprs:
+        filters.extend(_extract_filters(expr))
+    return filters
+
+
+def _patch_caregiver_access_model(
+    monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]
+) -> None:
+    def _ensure_id(access: CaregiverPatientAccess) -> None:
+        if getattr(access, "id", None) is None:
+            access.id = str(uuid.uuid4())
+
+    async def _insert(self: CaregiverPatientAccess) -> CaregiverPatientAccess:
+        _ensure_id(self)
+        store["access_links"][str(self.id)] = self
+        return self
+
+    async def _save(self: CaregiverPatientAccess) -> CaregiverPatientAccess:
+        _ensure_id(self)
+        store["access_links"][str(self.id)] = self
+        return self
+
+    class _FakeQuery:
+        def __init__(self, filters: list[tuple[str, str, object]] | None = None) -> None:
+            self.filters = filters or []
+
+        def find(self, expr: object) -> "_FakeQuery":
+            merged = [*self.filters, *_extract_filters(expr)]
+            return _FakeQuery(merged)
+
+        def _matches(self, access: CaregiverPatientAccess) -> bool:
+            for op, field, value in self.filters:
+                attr = getattr(access, field, None)
+                if op == "eq" and attr != value:
+                    return False
+            return True
+
+        async def to_list(self) -> list[CaregiverPatientAccess]:
+            return [
+                a for a in store["access_links"].values() if self._matches(a)
+            ]
+
+        async def first_or_none(self) -> CaregiverPatientAccess | None:
+            items = await self.to_list()
+            return items[0] if items else None
+
+    def _find(*exprs: object) -> _FakeQuery:
+        return _FakeQuery(_filters_from_exprs(exprs))
+
+    async def _find_one(*exprs: object) -> CaregiverPatientAccess | None:
+        return await _find(*exprs).first_or_none()
+
+    monkeypatch.setattr(CaregiverPatientAccess, "insert", _insert, raising=False)
+    monkeypatch.setattr(CaregiverPatientAccess, "save", _save, raising=False)
+    monkeypatch.setattr(CaregiverPatientAccess, "find", staticmethod(_find), raising=False)
+    monkeypatch.setattr(
+        CaregiverPatientAccess, "find_one", staticmethod(_find_one), raising=False
+    )
+
+
+def _patch_caregiver_request_model(
+    monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]
+) -> None:
+    def _ensure_id(access_request: CaregiverAccessRequest) -> None:
+        if getattr(access_request, "id", None) is None:
+            access_request.id = str(uuid.uuid4())
+
+    async def _insert(self: CaregiverAccessRequest) -> CaregiverAccessRequest:
+        _ensure_id(self)
+        store["access_requests"][str(self.id)] = self
+        return self
+
+    async def _save(self: CaregiverAccessRequest) -> CaregiverAccessRequest:
+        _ensure_id(self)
+        store["access_requests"][str(self.id)] = self
+        return self
+
+    async def _get(request_id: object) -> CaregiverAccessRequest | None:
+        return store["access_requests"].get(str(request_id))
+
+    class _FakeQuery:
+        def __init__(self, filters: list[tuple[str, str, object]] | None = None) -> None:
+            self.filters = filters or []
+
+        def find(self, expr: object) -> "_FakeQuery":
+            merged = [*self.filters, *_extract_filters(expr)]
+            return _FakeQuery(merged)
+
+        def _matches(self, request: CaregiverAccessRequest) -> bool:
+            for op, field, value in self.filters:
+                attr = getattr(request, field, None)
+                if op == "eq" and attr != value:
+                    return False
+            return True
+
+        async def to_list(self) -> list[CaregiverAccessRequest]:
+            return [
+                r for r in store["access_requests"].values() if self._matches(r)
+            ]
+
+        async def first_or_none(self) -> CaregiverAccessRequest | None:
+            items = await self.to_list()
+            return items[0] if items else None
+
+    def _find(*exprs: object) -> _FakeQuery:
+        return _FakeQuery(_filters_from_exprs(exprs))
+
+    async def _find_one(*exprs: object) -> CaregiverAccessRequest | None:
+        return await _find(*exprs).first_or_none()
+
+    monkeypatch.setattr(CaregiverAccessRequest, "insert", _insert, raising=False)
+    monkeypatch.setattr(CaregiverAccessRequest, "save", _save, raising=False)
+    monkeypatch.setattr(CaregiverAccessRequest, "get", staticmethod(_get), raising=False)
+    monkeypatch.setattr(CaregiverAccessRequest, "find", staticmethod(_find), raising=False)
+    monkeypatch.setattr(
+        CaregiverAccessRequest, "find_one", staticmethod(_find_one), raising=False
+    )
+
+
+def _patch_patient_condition_model(
+    monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]
+) -> None:
+    def _ensure_id(condition: PatientCondition) -> None:
+        if getattr(condition, "id", None) is None:
+            condition.id = str(uuid.uuid4())
+
+    async def _insert(self: PatientCondition) -> PatientCondition:
+        _ensure_id(self)
+        store["conditions"][str(self.id)] = self
+        return self
+
+    async def _save(self: PatientCondition) -> PatientCondition:
+        _ensure_id(self)
+        store["conditions"][str(self.id)] = self
+        return self
+
+    class _FakeQuery:
+        def __init__(self, filters: list[tuple[str, str, object]] | None = None) -> None:
+            self.filters = filters or []
+
+        def find(self, expr: object) -> "_FakeQuery":
+            merged = [*self.filters, *_extract_filters(expr)]
+            return _FakeQuery(merged)
+
+        def _matches(self, condition: PatientCondition) -> bool:
+            for op, field, value in self.filters:
+                attr = getattr(condition, field, None)
+                if op == "eq" and attr != value:
+                    return False
+                if op == "in" and str(attr) not in {str(item) for item in value}:
+                    return False
+            return True
+
+        async def to_list(self) -> list[PatientCondition]:
+            return [
+                c for c in store["conditions"].values() if self._matches(c)
+            ]
+
+    def _find(*exprs: object) -> _FakeQuery:
+        return _FakeQuery(_filters_from_exprs(exprs))
+
+    monkeypatch.setattr(PatientCondition, "insert", _insert, raising=False)
+    monkeypatch.setattr(PatientCondition, "save", _save, raising=False)
+    monkeypatch.setattr(PatientCondition, "find", staticmethod(_find), raising=False)
 
 
 def _patch_vital_model(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -> None:
@@ -334,12 +550,30 @@ async def db(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[dict[str, Any], 
     Provide an in-memory stand-in for Mongo to keep tests hermetic without a running DB.
     """
     settings.MONGODB_DB_NAME = "test_backend_core_db"
-    store: dict[str, Any] = {"users": {}, "vitals": [], "checkins": []}
+    store: dict[str, Any] = {
+        "users": {},
+        "vitals": [],
+        "checkins": [],
+        "access_links": {},
+        "access_requests": {},
+        "conditions": {},
+    }
 
     _install_field_proxies()
     _patch_user_model(monkeypatch, store)
     _patch_vital_model(monkeypatch, store)
     _patch_checkin_model(monkeypatch, store)
+    _patch_caregiver_access_model(monkeypatch, store)
+    _patch_caregiver_request_model(monkeypatch, store)
+    _patch_patient_condition_model(monkeypatch, store)
+
+    def _fake_in(field: object, values: list[object]) -> tuple[str, str, list[object]]:
+        name = getattr(field, "name", str(field))
+        return ("in", name, list(values))
+
+    monkeypatch.setattr(
+        "app.modules.caregivers.patients.service.In", _fake_in, raising=False
+    )
 
     # Stub init_db to avoid real connection attempts if invoked elsewhere
     async def _init_db_stub() -> object:
@@ -352,6 +586,9 @@ async def db(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[dict[str, Any], 
     store["users"].clear()
     store["vitals"].clear()
     store["checkins"].clear()
+    store["access_links"].clear()
+    store["access_requests"].clear()
+    store["conditions"].clear()
 
 
 @pytest.fixture
