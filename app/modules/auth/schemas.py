@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import Form
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.shared.constants import Role
 
@@ -26,7 +26,11 @@ class TokenData(BaseModel):
 
 
 class RefreshTokenBody(BaseModel):
-    refresh_token: str | None = None
+    model_config = ConfigDict(populate_by_name=True)
+    refresh_token: str | None = Field(
+        default=None,
+        alias="refreshToken",
+    )
 
 
 # Dependency form for login that accepts either `email` or the OAuth-standard
