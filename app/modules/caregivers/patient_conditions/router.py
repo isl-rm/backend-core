@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
 
 from app.core import security
-from app.modules.caregivers.conditions.service import (
+from app.modules.caregivers.patient_conditions.service import (
     CaregiverSubscription,
     caregiver_condition_manager,
 )

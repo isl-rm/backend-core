@@ -3,7 +3,7 @@ from typing import Iterable, List, Optional
 from beanie.operators import In
 from bson import ObjectId
 
-from app.modules.caregivers.conditions.models import ConditionSeverity, PatientCondition
+from app.modules.caregivers.patient_conditions.models import ConditionSeverity, PatientCondition
 from app.modules.caregivers.patients.models import (
     AccessRequestSource,
     AccessRequestStatus,

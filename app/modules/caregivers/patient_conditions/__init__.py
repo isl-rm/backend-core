@@ -1,5 +1,5 @@
-from app.modules.caregivers.conditions.router import router
-from app.modules.caregivers.conditions.service import (
+from app.modules.caregivers.patient_conditions.router import router
+from app.modules.caregivers.patient_conditions.service import (
     CaregiverConditionManager,
     CaregiverSubscription,
     caregiver_condition_manager,

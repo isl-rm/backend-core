@@ -2,7 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.modules.caregivers.conditions.models import ConditionSeverity
+from app.modules.caregivers.patient_conditions.models import ConditionSeverity
 from app.modules.caregivers.patients.models import AccessRequestSource
 from app.modules.caregivers.patients.schemas import (
     CaregiverAccessRequestCreateForCaregiver,

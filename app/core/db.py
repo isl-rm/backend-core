@@ -2,7 +2,7 @@ from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import settings
-from app.modules.caregivers.conditions.models import PatientCondition
+from app.modules.caregivers.patient_conditions.models import PatientCondition
 from app.modules.caregivers.patients.models import (
     CaregiverAccessRequest,
     CaregiverPatientAccess,
