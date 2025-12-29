@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+### ===================== CONFIG =====================
+REPO_URL="https://github.com/isl-rm/backend-core.git"
+BRANCH="dev"
+APP_DIR="/opt/app"
+
+DOMAIN="api.rmproject.space"
+APP_PORT="8000"
+SWAP_GB="1"
+
+# PASTE YOUR PUBLIC KEY HERE (from: cat gha_deploy.pub)
+DEPLOY_PUBKEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMSxhRs6tELuEjynvIDd7GxdJ9dfypeIAWxYL/Sww/Mj gha-deploy'
+### ==================================================
+
+log() { echo "[setup] $*"; }
+
+log "Installing prerequisites..."
+sudo apt-get update -y
+sudo apt-get install -y ca-certificates curl gnupg git ufw
+
+# ---- Swap (optional) ----
+if [[ "${SWAP_GB}" != "0" ]]; then
+  if ! sudo swapon --show | grep -q "/swapfile"; then
+    log "Creating ${SWAP_GB}G swapfile..."
+    sudo swapoff /swapfile 2>/dev/null || true
+    sudo rm -f /swapfile
+    sudo fallocate -l "${SWAP_GB}G" /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB*1024))
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  fi
+fi
+
+# ---- Docker + Compose plugin ----
+log "Installing Docker + Compose..."
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+# shellcheck disable=SC1091
+source /etc/os-release
+ARCH="$(dpkg --print-architecture)"
+echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+sudo apt-get update -y
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+
+# BuildKit required for your Dockerfile (RUN --mount=...)
+sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
+{ "features": { "buildkit": true } }
+EOF
+sudo systemctl restart docker
+
+# ---- Firewall ----
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+# ---- Install the deploy PUBLIC key for ubuntu ----
+log "Installing deploy public key for ubuntu..."
+sudo mkdir -p /home/ubuntu/.ssh
+sudo chmod 700 /home/ubuntu/.ssh
+sudo touch /home/ubuntu/.ssh/authorized_keys
+sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+
+# Add key only if not already present
+sudo -u ubuntu bash -lc "grep -qxF '${DEPLOY_PUBKEY}' /home/ubuntu/.ssh/authorized_keys || echo '${DEPLOY_PUBKEY}' >> /home/ubuntu/.ssh/authorized_keys"
+
+# ---- Clone/Pull repo ----
+log "Cloning/pulling repo into ${APP_DIR}..."
+sudo mkdir -p "${APP_DIR}"
+sudo chown -R ubuntu:ubuntu "${APP_DIR}"
+
+if [[ -d "${APP_DIR}/.git" ]]; then
+  sudo -u ubuntu git -C "${APP_DIR}" fetch --all
+else
+  sudo -u ubuntu git clone "${REPO_URL}" "${APP_DIR}"
+fi
+
+sudo -u ubuntu bash -lc "cd '${APP_DIR}' && git checkout '${BRANCH}' && git reset --hard origin/'${BRANCH}'"
+
+# ---- Generate Caddyfile (instance-specific; not in git) ----
+log "Generating Caddyfile..."
+cat | sudo tee "${APP_DIR}/Caddyfile" >/dev/null <<EOF
+http://${DOMAIN} {
+  reverse_proxy app:${APP_PORT}
+}
+EOF
+sudo chown ubuntu:ubuntu "${APP_DIR}/Caddyfile"
+
+# ---- Start stack ----
+log "Starting Docker Compose stack..."
+cd "${APP_DIR}"
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+sudo -E docker compose up -d --build
+
+log "Done."

@@ -3,17 +3,35 @@ services:
     image: mongo:7.0
     container_name: mongodb
     restart: unless-stopped
+
+    env_file:
+      - .env
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-      # Optional: create an initial database name (no data until you write to it)
-      MONGO_INITDB_DATABASE: appdb
-    ports:
-      - "27017:27017"
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGODB_DB_NAME}
+
     volumes:
       - mongo_data:/data/db
-      # Optional: put .js or .sh init scripts in ./mongo-init
-      # - ./mongo-init:/docker-entrypoint-initdb.d:ro
+
+    # Don't expose Mongo publicly unless you explicitly need it
+    # ports:
+    #   - "27017:27017"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@localhost:27017/admin?authSource=admin",
+          "--eval",
+          "db.runCommand({ ping: 1 })",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
@@ -27,18 +45,40 @@ services:
   app:
     build: .
     container_name: backend-core
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    # If your app reads PORT, this keeps it consistent
     environment:
-      - MONGODB_URL=mongodb://root:example@mongo:27017
-      # Use the service DNS name (not localhost) from inside the app container.
-      - REDIS_URL=redis://redis:6379/0
+      - PORT=${PORT}
+
     depends_on:
-      - mongo
-      - redis
+      mongo:
+        condition: service_healthy
+
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+
     volumes:
-      - ./.env:/app/.env
-      - ./app:/app/app
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    depends_on:
+      - app
 
 volumes:
   mongo_data:
+  caddy_data:
+  caddy_config:
