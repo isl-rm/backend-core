@@ -3,31 +3,33 @@ version: "3.9"
 services:
   mongo:
     image: mongo:7.0
-    container_name: mongodb
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
-      # Optional: create an initial database name (no data until you write to it)
       MONGO_INITDB_DATABASE: appdb
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
-      # Optional: put .js or .sh init scripts in ./mongo-init
-      # - ./mongo-init:/docker-entrypoint-initdb.d:ro
 
   app:
     build: .
-    container_name: backend-core
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
     environment:
-      - MONGODB_URL=mongodb://root:example@mongo:27017
+      - MONGODB_URL=mongodb://root:example@mongo:27017/?authSource=admin
     depends_on:
       - mongo
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
     volumes:
-      - ./.env:/app/.env
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
 
 volumes:
   mongo_data:
