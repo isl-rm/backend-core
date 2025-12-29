@@ -7,9 +7,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Backend Core"
     API_V1_STR: str = "/api/v1"
 
-    # MongoDB
-    MONGODB_URL: str = "mongodb://root:example@localhost:27017"
-    MONGODB_DB_NAME: str ="admin"# "backend_core_db"
+    # MongoDB (required in .env)
+    MONGODB_URL: str = ""
+    MONGODB_DB_NAME: str = "admin"  # "backend_core_db"
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
