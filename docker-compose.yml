@@ -5,22 +5,28 @@ services:
     image: mongo:7.0
     container_name: mongodb
     restart: unless-stopped
+
+    env_file:
+      - .env
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-      MONGO_INITDB_DATABASE: appdb
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGODB_DB_NAME}
+
     volumes:
       - mongo_data:/data/db
+
     # Don't expose Mongo publicly unless you explicitly need it
     # ports:
     #   - "27017:27017"
+
     healthcheck:
       test:
         [
           "CMD",
           "mongosh",
           "--quiet",
-          "mongodb://root:example@localhost:27017/admin?authSource=admin",
+          "mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@localhost:27017/admin?authSource=admin",
           "--eval",
           "db.runCommand({ ping: 1 })",
         ]
@@ -33,11 +39,18 @@ services:
     build: .
     container_name: backend-core
     restart: unless-stopped
+
+    env_file:
+      - .env
+
+    # If your app reads PORT, this keeps it consistent
     environment:
-      - MONGODB_URL=mongodb://root:example@mongo:27017/?authSource=admin
+      - PORT=${PORT}
+
     depends_on:
       mongo:
         condition: service_healthy
+
     expose:
       - "8000"
 
@@ -45,13 +58,16 @@ services:
     image: caddy:2
     container_name: caddy
     restart: unless-stopped
+
     ports:
       - "80:80"
       - "443:443"
+
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
     depends_on:
       - app
 

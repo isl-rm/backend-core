@@ -1,0 +1,2 @@
+<!-- View logs of the backend-core container -->
+sudo docker logs --tail 200 backend-core
