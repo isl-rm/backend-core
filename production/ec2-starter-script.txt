@@ -3,7 +3,7 @@ set -euo pipefail
 
 ### ===================== CONFIG =====================
 REPO_URL="https://github.com/isl-rm/backend-core.git"
-BRANCH="main"          # <-- change to dev if you truly want dev
+BRANCH="dev"          # <-- change to dev if you truly want dev
 APP_DIR="/opt/app"
 
 DOMAIN="api.rmproject.space"
