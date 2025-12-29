@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # MongoDB
     MONGODB_URL: str = "mongodb://root:example@localhost:27017"
-    MONGODB_DB_NAME: str ="admin"# "backend_core_db"
+    MONGODB_DB_NAME: str
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [

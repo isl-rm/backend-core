@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
+
 from app.shared.schemas import CamelModel
 
 
@@ -32,3 +34,11 @@ class AlertAckPayload(CamelModel):
     acknowledged_by: str
     status: str | None = None
     note: str | None = None
+
+
+class AlertAcknowledgmentRequest(CamelModel):
+    """HTTP request body for acknowledging alerts (SSE clients)."""
+
+    status: str | None = Field(None, description="Acknowledgment status (e.g., 'resolved', 'reviewing')")
+    note: str | None = Field(None, description="Optional note from the acknowledging user")
+
