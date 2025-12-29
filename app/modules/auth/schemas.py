@@ -15,10 +15,13 @@ class AccessTokenWithRolesResponse(AccessTokenResponse):
     roles: list[Role]
 
 
-class CookieLoginResponse(BaseModel):
-    email: EmailStr
-    name: str | None = None
-    roles: list[Role]
+from app.modules.users.schemas import UserResponse
+
+
+class AccessTokenWithUserResponse(AccessTokenResponse):
+    user: UserResponse
+
+
 
 
 class TokenData(BaseModel):

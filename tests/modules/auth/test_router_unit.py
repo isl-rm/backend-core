@@ -20,7 +20,24 @@ from app.shared.constants import Role, UserStatus
 async def test_login_access_token_unit():
     class FakeAuthService:
         async def authenticate(self, email: str, password: str):
-            return SimpleNamespace(id="user123", roles=[Role.USER])
+            profile_data = {"name": "U", "first_name": None, "last_name": None, "phone_number": None, "specialization": None, "bio": None, "avatar_url": None}
+            preferences_data = {"email_notifications": True, "sms_notifications": False, "critica_alerts": True, "quiet_hours_start": "22:00", "quiet_hours_end": "07:00", "language": "en", "timezone": "UTC", "dark_mode": False}
+            user_data = {
+                "id": "user123", 
+                "roles": [Role.USER],
+                "email": "u@example.com",
+                "status": UserStatus.ACTIVE,
+                "email_verified": True,
+                "created_at": datetime.now(timezone.utc),
+                "last_login_at": None,
+                "profile": profile_data,
+                "preferences": preferences_data
+            }
+            obj = SimpleNamespace(**user_data)
+            obj.profile = SimpleNamespace(**profile_data)
+            obj.preferences = SimpleNamespace(**preferences_data)
+            obj.model_dump = lambda: user_data
+            return obj
 
         def create_access_token(self, sub: str) -> str:
             return f"access-{sub}"
@@ -34,8 +51,8 @@ async def test_login_access_token_unit():
         response, form_data=form, auth_service=FakeAuthService()
     )
 
-    assert result["access_token"] == "access-user123"
-    assert result["roles"] == [Role.USER]
+    assert result.access_token == "access-user123"
+    assert result.user.roles == [Role.USER]
     assert "refresh_token=refresh-user123" in (
         response.headers.get("set-cookie") or ""
     ).lower()
@@ -63,7 +80,7 @@ async def test_refresh_token_body_and_cookie_paths():
         refresh_token_cookie="cookie-token",
         auth_service=auth,
     )
-    assert result["access_token"] == "new-access-user456"
+    assert result.access_token == "new-access-user456"
     assert auth.seen_tokens == ["body-token"]
     headers = [
         value.decode().lower()
@@ -82,7 +99,7 @@ async def test_refresh_token_body_and_cookie_paths():
         refresh_token_cookie="cookie-only",
         auth_service=auth2,
     )
-    assert result2["access_token"] == "new-access-user456"
+    assert result2.access_token == "new-access-user456"
     assert auth2.seen_tokens == ["cookie-only"]
     headers2 = [
         value.decode().lower()
@@ -144,7 +161,22 @@ async def test_login_cookie_sets_access_and_refresh_cookies():
                 id="user123",
                 email="u@example.com",
                 roles=[Role.DOCTOR],
-                profile=SimpleNamespace(name="Dr. U"),
+                profile=SimpleNamespace(name="Dr. U", first_name="Dr", last_name="U", phone_number=None, specialization=None, bio=None, avatar_url=None),
+                status=UserStatus.ACTIVE,
+                email_verified=True,
+                created_at=datetime.now(timezone.utc),
+                last_login_at=None,
+                preferences=SimpleNamespace(email_notifications=True, sms_notifications=False, critica_alerts=True, quiet_hours_start="22:00", quiet_hours_end="07:00", language="en", timezone="UTC", dark_mode=False, model_dump=lambda: {}),
+                model_dump=lambda: {
+                    "id": "user123",
+                    "email": "u@example.com",
+                    "roles": [Role.DOCTOR],
+                    "profile": {"name": "Dr. U"},
+                    "preferences": {},
+                    "status": UserStatus.ACTIVE,
+                    "email_verified": True,
+                    "created_at": datetime.now(timezone.utc),
+                }
             )
 
         def create_access_token(self, sub: str) -> str:
@@ -159,9 +191,9 @@ async def test_login_cookie_sets_access_and_refresh_cookies():
         response, form_data=form, auth_service=FakeAuthService()
     )
 
-    assert result["email"] == "u@example.com"
-    assert result["name"] == "Dr. U"
-    assert result["roles"] == [Role.DOCTOR]
+    assert result.email == "u@example.com"
+    assert result.profile.name == "Dr. U"
+    assert result.roles == [Role.DOCTOR]
     headers = [
         value.decode().lower()
         for header, value in response.raw_headers
@@ -194,6 +226,17 @@ async def test_create_user_happy_and_duplicate_paths():
                 created_at=datetime.now(timezone.utc),
                 last_login_at=None,
                 profile=user_in.profile,
+                preferences=SimpleNamespace(model_dump=lambda: {}),
+                model_dump=lambda: {
+                    "id": "user-abc",
+                    "email": user_in.email,
+                    "roles": user_in.roles,
+                    "status": UserStatus.ACTIVE,
+                    "email_verified": False,
+                    "created_at": datetime.now(timezone.utc),
+                    "profile": user_in.profile.model_dump(),
+                    "preferences": {}
+                }
             )
 
     user_in = UserCreate(email="new@example.com", password="password123")
