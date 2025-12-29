@@ -1,2 +1,6 @@
 <!-- View logs of the backend-core container -->
 sudo docker logs --tail 200 backend-core
+
+<!-- View errors of the caddy and backend-core containers -->
+sudo docker inspect caddy --format '{{.State.Error}}'
+sudo docker inspect backend-core --format '{{.State.Error}}'

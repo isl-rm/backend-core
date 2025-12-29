@@ -33,15 +33,6 @@ services:
       retries: 30
       start_period: 10s
 
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    restart: unless-stopped
-    # Cache-only Redis (no persistence) to speed up short-TTL API reads.
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "6379:6379"
-
   app:
     build: .
     container_name: backend-core
