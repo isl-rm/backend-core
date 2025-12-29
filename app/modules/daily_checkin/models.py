@@ -1,11 +1,12 @@
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 from uuid import uuid4
-import logging
+
 from beanie import Document, Insert, Link, Replace, Save, Update, before_event
-from pymongo import IndexModel
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pymongo import IndexModel
 
 from app.modules.users.models import User
 

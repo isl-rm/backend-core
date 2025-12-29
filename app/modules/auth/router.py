@@ -17,8 +17,8 @@ from app.modules.auth.constants import (
     ACCESS_TOKEN_SECURE,
     REFRESH_TOKEN_COOKIE_NAME,
     REFRESH_TOKEN_MAX_AGE,
-    REFRESH_TOKEN_SECURE,
     REFRESH_TOKEN_SAMESITE,
+    REFRESH_TOKEN_SECURE,
 )
 from app.modules.auth.schemas import (
     AccessTokenResponse,

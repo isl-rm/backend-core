@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.main import app
+from app.modules.users.models import User
 from app.modules.vitals import router
 from app.modules.vitals.models import VitalType
 from app.modules.vitals.schemas import (
@@ -13,7 +14,6 @@ from app.modules.vitals.schemas import (
     VitalCreate,
     VitalsQueryParams,
 )
-from app.modules.users.models import User
 
 
 def _fake_user() -> SimpleNamespace:

@@ -1,9 +1,11 @@
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
+
 from app.core import security
+from app.main import app
 from app.modules.vitals.models import VitalType
 from app.modules.vitals.service import vital_manager
 
@@ -30,22 +32,22 @@ def test_vitals_streaming_with_persistence(mock_create, mock_get) -> None:
 
     # 1. Generate Token
     token = security.create_access_token(subject="user123")
-    
+
     # 2. Connect frontend (consumer)
     # Frontend auth is currently optional/open in the code I wrote (it doesn't check token)
     with client.websocket_connect("/api/v1/vitals/ws/frontend") as frontend_ws:
-        
+
         # 3. Connect mobile (producer) with TOKEN
         with client.websocket_connect(f"/api/v1/vitals/ws/mobile?token={token}") as mobile_ws:
-            
+
             # 4. Mobile sends valid JSON
             payload = '{"type": "bpm", "value": 80, "unit": "bpm"}'
             mobile_ws.send_text(payload)
-            
+
             # 5. Frontend should receive it
             data = frontend_ws.receive_text()
             assert data == payload
-            
+
     # 6. Verify Persistence
     mock_create.assert_awaited_once()
     # Check arguments: ensure user was passed

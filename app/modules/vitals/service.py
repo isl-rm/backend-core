@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
+import structlog
 from fastapi import WebSocket
 from pydantic import TypeAdapter
-import structlog
 
 from app.core import cache
 from app.core.config import settings
@@ -11,9 +11,9 @@ from app.modules.alerts.service import alert_service
 from app.modules.users.models import User
 from app.modules.vitals.models import Vital, VitalType
 from app.modules.vitals.schemas import (
+    DailyAveragePoint,
     DashboardSummary,
     DashboardVitals,
-    DailyAveragePoint,
     VitalBulkCreate,
     VitalCreate,
     VitalSeriesResponse,

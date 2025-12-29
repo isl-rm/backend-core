@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class Role(str, Enum):
-    USER = "USER" # OR PATIENT 
+    USER = "USER" # OR PATIENT
     ADMIN = "ADMIN"
     DOCTOR = "DOCTOR"
     NURSE = "NURSE"

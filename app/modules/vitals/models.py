@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from beanie import Document, Link
-from pymongo import IndexModel
 from pydantic import Field
+from pymongo import IndexModel
 
 from app.modules.users.models import User
 

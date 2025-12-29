@@ -10,17 +10,19 @@ from app.core.db import init_db
 from app.core.logging import setup_logging
 from app.core.middleware import StructlogMiddleware
 from app.modules.alerts import router as alerts_router
-from app.modules.daily_checkin import router as daily_checkin_router
 from app.modules.auth import router as auth_router
-from app.modules.caregivers.patient_conditions import router as caregiver_conditions_router
 from app.modules.caregivers.messages import router as caregiver_messages_router
+from app.modules.caregivers.patient_conditions import (
+    router as caregiver_conditions_router,
+)
 from app.modules.caregivers.patients import router as caregiver_patients_router
 from app.modules.caregivers.vitals import router as caregiver_vitals_router
+from app.modules.chat import router as chat_router
+from app.modules.daily_checkin import router as daily_checkin_router
+from app.modules.users import router as users_router
 from app.modules.users.access_requests import (
     router as patient_access_requests_router,
 )
-from app.modules.chat import router as chat_router
-from app.modules.users import router as users_router
 from app.modules.vitals import router as vitals_router
 
 setup_logging()

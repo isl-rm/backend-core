@@ -1,7 +1,7 @@
 from app.modules.caregivers.vitals.router import router
 from app.modules.caregivers.vitals.service import (
-    CaregiverVitalSubscription,
     CaregiverVitalsManager,
+    CaregiverVitalSubscription,
     caregiver_vitals_manager,
 )
 

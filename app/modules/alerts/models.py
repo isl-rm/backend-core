@@ -1,6 +1,5 @@
-from dataclasses import dataclass
-
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
 
 from app.modules.alerts.config import AlertLevelConfig, VitalThresholdConfig
