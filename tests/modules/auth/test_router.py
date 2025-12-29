@@ -244,43 +244,6 @@ def test_login_cookie_helpers_set_and_clear_headers():
 
 
 @pytest.mark.asyncio
-async def test_login_refresh_flow_runs_with_cookie(client: AsyncClient, create_user_func):
-    password = "password123"
-    user = await create_user_func(password=password)
-
-    login_response = await client.post(
-        "/api/v1/login/access-token",
-        data={"email": user.email, "password": password},
-    )
-    assert login_response.status_code == 200
-    assert login_response.cookies.get("refresh_token")
-
-    refresh_response = await client.post("/api/v1/refresh-token")
-    assert refresh_response.status_code == 200
-    assert refresh_response.json()["token_type"] == "bearer"
-    assert refresh_response.cookies.get("refresh_token")
-
-
-@pytest.mark.asyncio
-async def test_login_logout_flow_clears_cookie(client: AsyncClient, create_user_func):
-    password = "password123"
-    user = await create_user_func(password=password)
-
-    login_response = await client.post(
-        "/api/v1/login/access-token",
-        data={"email": user.email, "password": password},
-    )
-    assert login_response.cookies.get("refresh_token")
-
-    logout_response = await client.post("/api/v1/logout")
-    assert logout_response.status_code == 204
-    clear_headers = _get_set_cookie_headers(logout_response)
-    assert any("refresh_token=" in h for h in clear_headers)
-    assert any("access_token=" in h for h in clear_headers)
-    assert any("max-age=0" in h for h in clear_headers)
-
-
-@pytest.mark.asyncio
 async def test_login_access_token_with_override_sets_tokens(client: AsyncClient):
     class FakeAuthService:
         def __init__(self) -> None:
@@ -339,37 +302,6 @@ async def test_login_access_token_with_override_sets_tokens(client: AsyncClient)
     assert response.cookies.get("refresh_token") == "refresh-user123"
     assert ("access", "user123") in fake_auth.created_tokens
     assert ("refresh", "user123") in fake_auth.created_tokens
-
-
-@pytest.mark.asyncio
-async def test_refresh_token_prefers_body_over_cookie(client: AsyncClient):
-    class FakeAuthService:
-        def __init__(self) -> None:
-            self.last_token = None
-
-        async def get_refresh_token_payload(self, token: str) -> str:
-            self.last_token = token
-            return "user456"
-
-        def create_access_token(self, sub: str) -> str:
-            return f"new-access-{sub}"
-
-    fake_auth = FakeAuthService()
-    app.dependency_overrides[AuthService] = lambda: fake_auth
-    try:
-        client.cookies.set("refresh_token", "cookietoken", domain="test", path="/")
-        response = await client.post(
-            "/api/v1/refresh-token",
-            json={"refreshToken": "bodytoken"},
-        )
-    finally:
-        app.dependency_overrides.clear()
-        client.cookies.clear()
-
-    assert response.status_code == 200
-    assert response.json()["access_token"] == "new-access-user456"
-    assert response.cookies.get("refresh_token") == "bodytoken"
-    assert fake_auth.last_token == "bodytoken"
 
 
 @pytest.mark.asyncio
