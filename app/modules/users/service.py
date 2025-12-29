@@ -2,7 +2,7 @@ import structlog
 
 from app.core import security
 from app.modules.users.models import User
-from app.modules.users.schemas import UserCreate
+from app.modules.users.schemas import UserCreate, UserPreferences
 
 log = structlog.get_logger()
 
@@ -27,6 +27,7 @@ class UserService:
             roles=user_in.roles,
             status=user_in.status,
             profile=user_in.profile.model_dump(),
+            preferences=UserPreferences(timezone=user_in.timezone).model_dump(),
         )
         await user.insert()
         return user

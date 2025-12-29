@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from jose import jwt
 
 from app.modules.vitals.service import vital_manager
+
 from .http import (
     create_vital,
     create_vitals_bulk,
@@ -12,6 +13,8 @@ from .http import (
     read_latest_vital,
     read_vital_series,
     read_vitals,
+)
+from .http import (
     router as http_router,
 )
 from .ws_frontend import router as ws_frontend_router
@@ -21,6 +24,8 @@ from .ws_mobile import (
     _handle_ecg_payload,
     _is_ecg_payload,
     _process_mobile_message,
+)
+from .ws_mobile import (
     router as ws_mobile_router,
 )
 

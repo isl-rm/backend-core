@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import status
+from jose import JWTError
 
+from app.core import security
+from app.modules.users.models import User
 from app.modules.vitals import router
 from app.modules.vitals.models import VitalType
 from app.modules.vitals.schemas import EcgStreamPayload
-from app.core import security
-from app.modules.users.models import User
-from jose import JWTError
 
 
 def test_is_ecg_payload_accepts_enum_and_string() -> None:

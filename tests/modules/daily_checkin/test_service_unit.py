@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.modules.daily_checkin.models import SubstanceStatus, SubstanceUse
 from app.modules.daily_checkin.schemas import DailyCheckinUpdate
 from app.modules.daily_checkin.service import DailyCheckinService
 

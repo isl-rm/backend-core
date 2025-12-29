@@ -1,8 +1,9 @@
 """HTTP endpoints for recording and retrieving vitals."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.modules.users.models import User

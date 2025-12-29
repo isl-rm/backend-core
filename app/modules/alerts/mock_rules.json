@@ -7,34 +7,60 @@
       "name": "slight",
       "priority": 1,
       "consecutiveSamples": 3,
-      "initialRecipients": ["patient"],
-      "escalationRecipients": ["patient"],
+      "initialRecipients": [
+        "patient"
+      ],
+      "escalationRecipients": [
+        "patient"
+      ],
       "escalateAfterSeconds": 30
     },
     {
       "name": "moderate",
       "priority": 2,
       "consecutiveSamples": 3,
-      "initialRecipients": ["patient"],
-      "escalationRecipients": ["patient", "caregiver"],
+      "initialRecipients": [
+        "patient"
+      ],
+      "escalationRecipients": [
+        "patient",
+        "caregiver"
+      ],
       "escalateAfterSeconds": 30
     },
     {
       "name": "critical",
       "priority": 3,
       "consecutiveSamples": 3,
-      "initialRecipients": ["patient"],
-      "escalationRecipients": ["patient", "caregiver", "dispatcher", "hospital"],
-      "escalateAfterSeconds": 30
+      "initialRecipients": [
+        "patient",
+        "caregiver"
+      ],
+      "escalationRecipients": [
+        "patient",
+        "caregiver",
+        "dispatcher",
+        "hospital"
+      ],
+      "escalateAfterSeconds": 5
     }
   ],
   "vitals": {
     "heart_rate": {
       "unit": "bpm",
       "levels": {
-        "slight": { "min": 55, "max": 120 },
-        "moderate": { "min": 50, "max": 140 },
-        "critical": { "min": 40, "max": 180 }
+        "slight": {
+          "min": 55,
+          "max": 120
+        },
+        "moderate": {
+          "min": 50,
+          "max": 140
+        },
+        "critical": {
+          "min": 40,
+          "max": 180
+        }
       }
     }
   }

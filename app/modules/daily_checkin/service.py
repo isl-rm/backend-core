@@ -1,6 +1,6 @@
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-import logging
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -19,8 +19,8 @@ from app.modules.daily_checkin.schemas import (
     DailyCheckinUpdate,
     HistoryItem,
     HistoryQuery,
-    HistoryResponse,
     HistoryRangeQuery,
+    HistoryResponse,
     PlanItemCreateRequest,
     PlanItemUpdateRequest,
 )
@@ -244,7 +244,7 @@ class DailyCheckinService:
             checkin = None
         else:
             checkin = await DailyCheckin.get(object_id)
-        if not checkin:# or str(checkin.user.id) != str(user.id):
+        if not checkin:
             logging.getLogger(__name__).error(f"Check-in {checkin} not found")
             raise ValueError("check-in not found")
 

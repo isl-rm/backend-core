@@ -17,13 +17,13 @@ from app.modules.auth.constants import (
     ACCESS_TOKEN_SECURE,
     REFRESH_TOKEN_COOKIE_NAME,
     REFRESH_TOKEN_MAX_AGE,
-    REFRESH_TOKEN_SECURE,
     REFRESH_TOKEN_SAMESITE,
+    REFRESH_TOKEN_SECURE,
 )
 from app.modules.auth.schemas import (
     AccessTokenResponse,
     AccessTokenWithRolesResponse,
-    CookieLoginResponse,
+    AccessTokenWithUserResponse,
     EmailPasswordForm,
     RefreshTokenBody,
 )
@@ -80,7 +80,7 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 @router.post(
     "/login/access-token",
-    response_model=AccessTokenWithRolesResponse,
+    response_model=AccessTokenWithUserResponse,
     summary="Login to get access token",
 )
 async def login_access_token(
@@ -90,7 +90,16 @@ async def login_access_token(
 ) -> Any:
     """
     OAuth2 compatible token login, get an access token for future requests.
-    When authorizing via Swagger UI, put your email in the `username` field.
+    
+    This endpoint is designed for mobile clients, third-party applications, or 
+    clients that prefer to handle the access token manually in the Authorization header.
+    
+    **Returns:**
+    - `access_token`: The JWT access token (short-lived).
+    - `token_type`: Always "bearer".
+    - `user`: Full user profile and preferences.
+    
+    *Side Effect*: Sets a `refresh_token` http-only cookie for simplified token rotation.
     """
     if not form_data.email:
         raise HTTPException(
@@ -107,16 +116,16 @@ async def login_access_token(
     refresh_token = auth_service.create_refresh_token(user.id)
     _set_refresh_cookie(response, refresh_token)
 
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "roles": user.roles,
-    }
+    return AccessTokenWithUserResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=UserResponse(**user.model_dump()),
+    )
 
 
 @router.post(
     "/login/cookie",
-    response_model=CookieLoginResponse,
+    response_model=UserResponse,
     summary="Login to set auth cookies",
 )
 async def login_cookie(
@@ -126,6 +135,17 @@ async def login_cookie(
 ) -> Any:
     """
     Login using email/password and set access + refresh cookies for web clients.
+
+    This endpoint is designed for the first-party web frontend (SPA). 
+    It moves the responsibility of token storage to the browser's secure, http-only cookies, 
+    protecting against XSS attacks stealing tokens.
+
+    **Returns:**
+    - Full user profile and preferences (UserResponse).
+
+    *Side Effect*: 
+    - Sets `access_token` http-only cookie.
+    - Sets `refresh_token` http-only cookie.
     """
     if not form_data.email:
         raise HTTPException(
@@ -142,7 +162,7 @@ async def login_cookie(
     _set_access_cookie(response, access_token)
     _set_refresh_cookie(response, refresh_token)
 
-    return {"email": user.email, "name": user.profile.name, "roles": user.roles}
+    return UserResponse(**user.model_dump())
 
 
 @router.post(
@@ -185,7 +205,10 @@ async def refresh_token(
     # We return the same refresh token (rotation not implemented yet)
     _set_refresh_cookie(response, refresh_token_value)
     _set_access_cookie(response, new_access_token)
-    return {"access_token": new_access_token, "token_type": "bearer"}
+    return AccessTokenResponse(
+        access_token=new_access_token,
+        token_type="bearer",
+    )
 
 
 @router.post(
@@ -223,4 +246,4 @@ async def create_user(
         )
 
     user = await user_service.create(user_in)
-    return user
+    return UserResponse(**user.model_dump())

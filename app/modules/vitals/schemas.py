@@ -1,6 +1,7 @@
+import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
-import logging
+
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from app.modules.vitals.models import Vital, VitalType

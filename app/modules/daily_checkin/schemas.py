@@ -1,11 +1,11 @@
 from datetime import date, datetime, timezone
 from typing import List
+
 from pydantic import AliasChoices, Field, field_validator
 
 from app.modules.daily_checkin.models import (
     DailyPlanItem,
     Hydration,
-    SubstanceStatus,
     SubstanceUse,
     Symptom,
 )

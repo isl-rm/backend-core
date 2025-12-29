@@ -1,7 +1,7 @@
 import importlib
 
-from app.core import config
 import app.modules.auth.constants as constants
+from app.core import config
 
 
 def test_refresh_cookie_defaults_to_lax_when_invalid(monkeypatch):

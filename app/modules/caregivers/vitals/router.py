@@ -2,7 +2,7 @@ import json
 from typing import Optional, Set
 
 import structlog
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
 
 from app.core import security
@@ -12,6 +12,9 @@ from app.modules.caregivers.vitals.service import (
     caregiver_vitals_manager,
 )
 from app.modules.users.models import User
+from app.modules.vitals.schemas import DashboardSummary
+from app.modules.vitals.service import VitalService
+from app.shared import deps
 from app.shared.constants import Role, UserStatus
 
 router = APIRouter()
@@ -120,3 +123,35 @@ async def websocket_caregiver_vitals(
     finally:
         caregiver_vitals_manager.unsubscribe(websocket)
         log.info("caregiver vitals websocket disconnected", user_id=str(user.id))
+
+
+@router.get(
+    "/patients/{patient_id}/dashboard",
+    response_model=DashboardSummary,
+    summary="Get vitals dashboard summary for a patient",
+)
+async def read_patient_dashboard_summary(
+    patient_id: str,
+    current_user: User = Depends(deps.RoleChecker([Role.CAREGIVER])),
+    patient_service: CaregiverPatientService = Depends(CaregiverPatientService),
+    vital_service: VitalService = Depends(VitalService),
+) -> DashboardSummary:
+    """
+    Return the latest vitals dashboard summary for a specific patient.
+    The caregiver must have active access to the patient.
+    """
+    # Verify caregiver has access to this patient
+    patient_ids = await patient_service.list_patient_ids(current_user)
+    if patient_id not in patient_ids:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this patient's data",
+        )
+
+    # Fetch the patient user
+    patient = await User.get(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Return the dashboard summary for the patient
+    return await vital_service.get_dashboard_summary(user=patient)

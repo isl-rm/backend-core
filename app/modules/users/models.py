@@ -9,7 +9,25 @@ from app.shared.constants import Role, UserStatus
 
 class Profile(BaseModel):
     name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    specialization: Optional[str] = None
+    bio: Optional[str] = None
     avatar_url: Optional[str] = None
+
+
+
+
+class UserPreferences(BaseModel):
+    email_notifications: bool = True
+    sms_notifications: bool = False
+    critical_alerts: bool = True
+    quiet_hours_start: str = "22:00"
+    quiet_hours_end: str = "07:00"
+    language: str = "English (US)"
+    timezone: str = "UTC"
+    dark_mode: bool = False
 
 
 class User(Document):
@@ -19,6 +37,7 @@ class User(Document):
     status: UserStatus = UserStatus.ACTIVE
     roles: List[Role] = [Role.USER]
     profile: Profile = Field(default_factory=Profile)
+    preferences: UserPreferences = Field(default_factory=UserPreferences)
 
     # Security & Audit
     last_login_at: Optional[datetime] = None
