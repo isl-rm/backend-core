@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+### ===================== CONFIG =====================
+REPO_URL="https://github.com/isl-rm/backend-core.git"
+BRANCH="dev"          # <-- change to dev if you truly want dev
+APP_DIR="/opt/app"
+
+DOMAIN="api.rmproject.space"
+APP_PORT="8000"
+SWAP_GB="1"
+
+# OPTIONAL: add deploy public key (GitHub Actions SSH). Leave empty to skip.
+DEPLOY_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMSxhRs6tELuEjynvIDd7GxdJ9dfypeIAWxYL/Sww/Mj gha-deploy"
+### ==================================================
+
+log() { echo "[$(date -Is)] $*"; }
+
+create_swap() {
+  if [[ "${SWAP_GB}" == "0" ]]; then return; fi
+  if swapon --show | grep -q "/swapfile"; then
+    log "Swap already exists."
+    return
+  fi
+  log "Creating ${SWAP_GB}G swap..."
+  sudo fallocate -l "${SWAP_GB}G" /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB*1024))
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+}
+
+install_basics() {
+  log "Updating apt and installing base packages..."
+  sudo apt-get update -y
+  sudo apt-get install -y ca-certificates curl gnupg git ufw
+}
+
+install_docker() {
+  if command -v docker >/dev/null 2>&1; then
+    log "Docker already installed."
+    return
+  fi
+
+  log "Installing Docker Engine + Compose plugin..."
+  sudo install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  ARCH="$(dpkg --print-architecture)"
+  echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+    | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+
+  sudo apt-get update -y
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo systemctl enable --now docker
+
+  # Optional convenience
+  sudo usermod -aG docker ubuntu || true
+}
+
+setup_firewall() {
+  log "Configuring UFW (allow SSH/HTTP/HTTPS)..."
+  sudo ufw allow OpenSSH || true
+  sudo ufw allow 80/tcp || true
+  sudo ufw allow 443/tcp || true
+  sudo ufw --force enable || true
+}
+
+setup_deploy_key() {
+  if [[ -z "${DEPLOY_PUBKEY}" ]]; then
+    log "DEPLOY_PUBKEY empty, skipping."
+    return
+  fi
+  log "Adding deploy public key to /home/ubuntu/.ssh/authorized_keys..."
+  sudo -u ubuntu mkdir -p /home/ubuntu/.ssh
+  sudo chmod 700 /home/ubuntu/.ssh
+  sudo touch /home/ubuntu/.ssh/authorized_keys
+  sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+  if ! sudo grep -qF "${DEPLOY_PUBKEY}" /home/ubuntu/.ssh/authorized_keys; then
+    echo "${DEPLOY_PUBKEY}" | sudo tee -a /home/ubuntu/.ssh/authorized_keys >/dev/null
+  fi
+  sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+}
+
+clone_repo() {
+  log "Preparing ${APP_DIR}..."
+  sudo mkdir -p "${APP_DIR}"
+  sudo chown -R ubuntu:ubuntu "${APP_DIR}"
+
+  if [[ -d "${APP_DIR}/.git" ]]; then
+    log "Repo exists, updating..."
+    sudo -u ubuntu bash -lc "cd '${APP_DIR}' && git fetch --all --prune && git checkout '${BRANCH}' && git pull"
+  else
+    log "Cloning repo..."
+    sudo -u ubuntu git clone --branch "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
+  fi
+}
+
+ensure_files_exist() {
+  log "Checking required files..."
+  [[ -f "${APP_DIR}/docker-compose.yml" ]] || { echo "ERROR: docker-compose.yml not found in ${APP_DIR}"; exit 1; }
+  [[ -f "${APP_DIR}/.env" ]] || { echo "ERROR: .env not found in ${APP_DIR} (you said you'll commit it)"; exit 1; }
+}
+
+write_caddyfile_ssl_if_missing() {
+  if [[ -f "${APP_DIR}/Caddyfile" ]]; then
+    log "Caddyfile exists. Leaving as-is."
+    return
+  fi
+  log "Caddyfile missing. Creating SSL-enabled Caddyfile..."
+  sudo tee "${APP_DIR}/Caddyfile" >/dev/null <<EOF
+${DOMAIN} {
+  reverse_proxy app:${APP_PORT}
+}
+EOF
+  sudo chown ubuntu:ubuntu "${APP_DIR}/Caddyfile"
+}
+
+start_stack() {
+  log "Starting stack via docker compose..."
+  cd "${APP_DIR}"
+
+  # Force compose to read the committed .env
+  sudo docker compose --env-file "${APP_DIR}/.env" up -d --build
+
+  log "Containers:"
+  sudo docker compose --env-file "${APP_DIR}/.env" ps
+}
+
+main() {
+  install_basics
+  create_swap
+  install_docker
+  setup_firewall
+  setup_deploy_key
+  clone_repo
+  ensure_files_exist
+  write_caddyfile_ssl_if_missing
+  start_stack
+
+  log "Done."
+  log "Check locally:"
+  log "  curl -i http://localhost/health"
+  log "Check HTTPS (requires DNS -> Elastic IP + SG 80/443):"
+  log "  curl -I https://${DOMAIN}/health"
+}
+
+main "$@"

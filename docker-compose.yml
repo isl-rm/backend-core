@@ -1,44 +1,62 @@
+name: app
+
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend-core
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT}
+      MONGODB_URL: ${MONGODB_URL}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
+      MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS}
+    expose:
+      - "8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
   mongo:
     image: mongo:7.0
     container_name: mongodb
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-      # Optional: create an initial database name (no data until you write to it)
-      MONGO_INITDB_DATABASE: appdb
-    ports:
-      - "27017:27017"
+      # These map your host .env values to the container's required variables
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGODB_DB_NAME}
     volumes:
       - mongo_data:/data/db
-      # Optional: put .js or .sh init scripts in ./mongo-init
-      # - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [
+          "CMD-SHELL",
+          # Updated to use internal variables with $$ for container-side expansion
+          'mongosh --quiet "mongodb://$${MONGO_INITDB_ROOT_USERNAME}:$${MONGO_INITDB_ROOT_PASSWORD}@localhost:27017/admin?authSource=admin" --eval "db.runCommand({ ping: 1 })" || exit 1',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
-  redis:
-    image: redis:7-alpine
-    container_name: redis
+  caddy:
+    image: caddy:2
+    container_name: caddy
     restart: unless-stopped
-    # Cache-only Redis (no persistence) to speed up short-TTL API reads.
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "6379:6379"
-
-  app:
-    build: .
-    container_name: backend-core
-    ports:
-      - "8000:8000"
-    environment:
-      - MONGODB_URL=mongodb://root:example@mongo:27017
-      # Use the service DNS name (not localhost) from inside the app container.
-      - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - mongo
-      - redis
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./.env:/app/.env
-      - ./app:/app/app
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   mongo_data:
+  caddy_data:
+  caddy_config:
