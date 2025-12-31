@@ -372,3 +372,178 @@ class TestHTTPAlertAcknowledgment:
             call_args = mock_service.acknowledge.call_args
             assert call_args.kwargs["status"] is None
             assert call_args.kwargs["note"] is None
+
+
+@pytest.mark.asyncio
+class TestCaregiverSSEStream:
+    """Test caregiver-specific SSE streaming endpoint."""
+
+    async def test_caregiver_stream_success(
+        self, client: AsyncClient, test_user: User, test_patient: User
+    ) -> None:
+        """Test caregiver can stream alerts from all their patients."""
+        # Set up caregiver role
+        test_user.roles = [Role.CAREGIVER]
+        await test_user.save()
+
+        # Grant caregiver access to patient
+        from app.modules.caregivers.patients.models import CaregiverPatientAccess
+
+        access = CaregiverPatientAccess(
+            caregiver_id=str(test_user.id),
+            patient_id=str(test_patient.id),
+            active=True,
+        )
+        await access.insert()
+
+        headers = auth_headers(str(test_user.id))
+
+        async def check_stream() -> None:
+            async with client.stream(
+                "GET",
+                "/api/v1/caregivers/alerts/stream",
+                headers=headers,
+                timeout=2.0,
+            ) as response:
+                assert response.status_code == status.HTTP_200_OK
+                assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
+                assert response.headers["cache-control"] == "no-cache"
+
+        try:
+            await asyncio.wait_for(check_stream(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+    async def test_caregiver_stream_no_patients(
+        self, client: AsyncClient, test_user: User
+    ) -> None:
+        """Test caregiver stream works even with no patients."""
+        test_user.roles = [Role.CAREGIVER]
+        await test_user.save()
+
+        headers = auth_headers(str(test_user.id))
+
+        async def check_stream() -> None:
+            async with client.stream(
+                "GET",
+                "/api/v1/caregivers/alerts/stream",
+                headers=headers,
+                timeout=2.0,
+            ) as response:
+                assert response.status_code == status.HTTP_200_OK
+
+        try:
+            await asyncio.wait_for(check_stream(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+    async def test_caregiver_stream_unauthorized_role(
+        self, client: AsyncClient, test_user: User
+    ) -> None:
+        """Test user without caregiver role cannot access endpoint."""
+        # User has no caregiver role
+        test_user.roles = [Role.USER]
+        await test_user.save()
+
+        headers = auth_headers(str(test_user.id))
+
+        response = await client.get(
+            "/api/v1/caregivers/alerts/stream",
+            headers=headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "caregiver role" in response.json()["detail"].lower()
+
+    async def test_caregiver_stream_admin_access(
+        self, client: AsyncClient, test_admin: User
+    ) -> None:
+        """Test admin can access caregiver stream."""
+        headers = auth_headers(str(test_admin.id))
+
+        async def check_stream() -> None:
+            async with client.stream(
+                "GET",
+                "/api/v1/caregivers/alerts/stream",
+                headers=headers,
+                timeout=2.0,
+            ) as response:
+                assert response.status_code == status.HTTP_200_OK
+
+        try:
+            await asyncio.wait_for(check_stream(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+    async def test_caregiver_stream_unauthenticated(self, client: AsyncClient) -> None:
+        """Test unauthenticated request is rejected."""
+        response = await client.get("/api/v1/caregivers/alerts/stream")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("app.modules.caregivers.alerts.router.alert_manager")
+    async def test_caregiver_stream_multiple_patients(
+        self,
+        mock_manager: MagicMock,
+        client: AsyncClient,
+        test_user: User,
+        test_patient: User,
+    ) -> None:
+        """Test caregiver receives alerts from multiple patients."""
+        from app.modules.caregivers.patients.models import CaregiverPatientAccess
+        from app.modules.users.models import User as UserModel
+
+        # Set up caregiver
+        test_user.roles = [Role.CAREGIVER]
+        await test_user.save()
+
+        # Create second patient
+        patient2 = UserModel(
+            email="patient2@example.com",
+            hashed_password="hashed",
+            roles=[Role.USER],
+        )
+        await patient2.insert()
+
+        # Grant access to both patients
+        access1 = CaregiverPatientAccess(
+            caregiver_id=str(test_user.id),
+            patient_id=str(test_patient.id),
+            active=True,
+        )
+        await access1.insert()
+
+        access2 = CaregiverPatientAccess(
+            caregiver_id=str(test_user.id),
+            patient_id=str(patient2.id),
+            active=True,
+        )
+        await access2.insert()
+
+        headers = auth_headers(str(test_user.id))
+
+        # Mock to verify subscribe_sse_for_patients is called with correct patient IDs
+        mock_manager.subscribe_sse_for_patients = AsyncMock()
+        mock_manager.unsubscribe_sse = MagicMock()
+
+        async def check_stream() -> None:
+            async with client.stream(
+                "GET",
+                "/api/v1/caregivers/alerts/stream",
+                headers=headers,
+                timeout=2.0,
+            ) as response:
+                assert response.status_code == status.HTTP_200_OK
+
+                # Verify subscribe was called with both patient IDs
+                mock_manager.subscribe_sse_for_patients.assert_called_once()
+                call_args = mock_manager.subscribe_sse_for_patients.call_args
+                patient_ids = call_args.kwargs["patient_ids"]
+                assert len(patient_ids) == 2
+                assert str(test_patient.id) in patient_ids
+                assert str(patient2.id) in patient_ids
+                assert call_args.kwargs["role"] == "caregiver"
+                assert call_args.kwargs["caregiver_id"] == str(test_user.id)
+
+        try:
+            await asyncio.wait_for(check_stream(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass

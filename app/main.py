@@ -11,6 +11,7 @@ from app.core.logging import setup_logging
 from app.core.middleware import StructlogMiddleware
 from app.modules.alerts import router as alerts_router
 from app.modules.auth import router as auth_router
+from app.modules.caregivers.alerts import router as caregiver_alerts_router
 from app.modules.caregivers.messages import router as caregiver_messages_router
 from app.modules.caregivers.patient_conditions import (
     router as caregiver_conditions_router,
@@ -99,6 +100,11 @@ app.include_router(
 )
 app.include_router(
     caregiver_vitals_router,
+    prefix=f"{settings.API_V1_STR}/caregivers",
+    tags=["caregivers"],
+)
+app.include_router(
+    caregiver_alerts_router,
     prefix=f"{settings.API_V1_STR}/caregivers",
     tags=["caregivers"],
 )

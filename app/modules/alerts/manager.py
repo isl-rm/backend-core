@@ -13,6 +13,8 @@ class AlertConnectionManager:
         self._connections: dict[str, dict[str, list[WebSocket]]] = {}
         # SSE connections (new): queue-based message delivery
         self._sse_queues: dict[str, dict[str, list[asyncio.Queue[dict[str, Any]]]]] = {}
+        # Track caregiver subscriptions for multi-patient support
+        self._caregiver_subscriptions: dict[int, list[str]] = {}
 
     # ========== WebSocket Methods (Existing) ==========
 
@@ -42,16 +44,53 @@ class AlertConnectionManager:
         patient_key = self._normalize_patient_id(patient_id)
         self._sse_queues.setdefault(patient_key, {}).setdefault(role_key, []).append(queue)
 
+    async def subscribe_sse_for_patients(
+        self,
+        queue: asyncio.Queue[dict[str, Any]],
+        role: str,
+        patient_ids: list[str],
+        caregiver_id: str,
+    ) -> None:
+        """
+        Register an SSE client queue for alert delivery from multiple patients.
+        Used by caregivers to subscribe to all their patients' alerts.
+        """
+        role_key = self._normalize_role(role)
+        queue_id = id(queue)
+        
+        # Track which patients this queue is subscribed to for cleanup
+        self._caregiver_subscriptions[queue_id] = []
+        
+        for patient_id in patient_ids:
+            patient_key = self._normalize_patient_id(patient_id)
+            self._sse_queues.setdefault(patient_key, {}).setdefault(role_key, []).append(queue)
+            self._caregiver_subscriptions[queue_id].append(patient_key)
+
     def unsubscribe_sse(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
         """Remove an SSE client queue from all subscriptions."""
-        for patient_key, role_map in list(self._sse_queues.items()):
-            for role_key, queues in list(role_map.items()):
-                if queue in queues:
-                    queues.remove(queue)
-                if not queues:
-                    role_map.pop(role_key, None)
-            if not role_map:
-                self._sse_queues.pop(patient_key, None)
+        queue_id = id(queue)
+        
+        # If this is a caregiver subscription, clean up efficiently
+        if queue_id in self._caregiver_subscriptions:
+            patient_keys = self._caregiver_subscriptions.pop(queue_id)
+            for patient_key in patient_keys:
+                for role_key, queues in list(self._sse_queues.get(patient_key, {}).items()):
+                    if queue in queues:
+                        queues.remove(queue)
+                    if not queues:
+                        self._sse_queues[patient_key].pop(role_key, None)
+                if patient_key in self._sse_queues and not self._sse_queues[patient_key]:
+                    self._sse_queues.pop(patient_key, None)
+        else:
+            # Regular single-patient subscription cleanup
+            for patient_key, role_map in list(self._sse_queues.items()):
+                for role_key, queues in list(role_map.items()):
+                    if queue in queues:
+                        queues.remove(queue)
+                    if not queues:
+                        role_map.pop(role_key, None)
+                if not role_map:
+                    self._sse_queues.pop(patient_key, None)
 
     # ========== Unified Broadcast (Both Transports) ==========
 
